@@ -5,13 +5,13 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btcd/blockchain"
+	"github.com/roasbeef/btcd/blockchain"
 
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/roasbeef/btcd/txscript"
 
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/hdkeychain"
 
 	"github.com/boltdb/bolt"
 )
@@ -486,7 +486,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 
 		// if hits is nonzero it's a relevant tx and we should store it
 		var buf bytes.Buffer
-		tx.SerializeWitness(&buf) // always store witness version
+		tx.Serialize(&buf)
 		err = txns.Put(cachedSha.Bytes(), buf.Bytes())
 		if err != nil {
 			return err

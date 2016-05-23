@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 func (s *SPVCon) incomingMessageHandler() {
@@ -203,7 +203,7 @@ func (s *SPVCon) GetDataHandler(m *wire.MsgGetData) {
 				log.Printf("error getting tx %s: %s",
 					thing.Hash.String(), err.Error())
 			}
-			tx.Flags = 0x00 // dewitnessify
+			//tx.Flags = 0x00 // dewitnessify
 			s.outMsgQueue <- tx
 			sent++
 			continue
