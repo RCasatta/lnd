@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/codegangsta/cli"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/urfave/cli"
 
 	"google.golang.org/grpc"
 )
@@ -50,8 +50,16 @@ func main() {
 	app.Commands = []cli.Command{
 		NewAddressCommand,
 		SendManyCommand,
+		SendCoinsCommand,
 		ConnectCommand,
+		OpenChannelCommand,
+		CloseChannelCommand,
+		ListPeersCommand,
+		WalletBalanceCommand,
 		ShellCommand,
+		GetInfoCommand,
+		PendingChannelsCommand,
+		SendPaymentCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

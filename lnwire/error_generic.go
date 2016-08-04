@@ -3,44 +3,28 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // ErrorGeneric represents a generic error bound to an exact channel. The
 // message format is purposefully general in order to allow expressino of a wide
 // array of possible errors. Each ErrorGeneric message is directed at a particular
-// open channel referenced by ChannelID.
+// open channel referenced by ChannelPoint.
 type ErrorGeneric struct {
-	// ChannelID references the active channel in which the error occured
-	// within.
-	ChannelID uint64
+	// ChannelPoint references the active channel in which the error occured
+	// within. A ChannelPoint of zeroHash:0 denotes this error applies to
+	// the entire established connection.
+	ChannelPoint *wire.OutPoint
 
-	// TODO(roasbeef): uint16 for problem type?
-	// ErrorID uint16
+	// ErrorID quickly defines the nature of the error according to error
+	// type.
+	ErrorID uint16
 
 	// Problem is a human-readable string further elaborating upon the
 	// nature of the exact error. The maxmium allowed length of this
 	// message is 8192 bytes.
 	Problem string
-
-	// TODO(roasbeef): add SerializeSize?
-}
-
-// Decode deserializes a serialized ErrorGeneric message stored in the
-// passed io.Reader observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
-	// Problem
-	err := readElements(r,
-		&c.ChannelID,
-		&c.Problem,
-	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // NewErrorGeneric creates a new ErrorGeneric message.
@@ -52,13 +36,33 @@ func NewErrorGeneric() *ErrorGeneric {
 // interface.
 var _ Message = (*ErrorGeneric)(nil)
 
+// Decode deserializes a serialized ErrorGeneric message stored in the
+// passed io.Reader observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
+func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
+	// ChannelPoint(8)
+	// Problem
+	err := readElements(r,
+		&c.ChannelPoint,
+		&c.ErrorID,
+		&c.Problem,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Encode serializes the target ErrorGeneric into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
 func (c *ErrorGeneric) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
+		c.ErrorID,
 		c.Problem,
 	)
 	if err != nil {
@@ -103,7 +107,8 @@ func (c *ErrorGeneric) Validate() error {
 // This is part of the lnwire.Message interface.
 func (c *ErrorGeneric) String() string {
 	return fmt.Sprintf("\n--- Begin ErrorGeneric ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
+		fmt.Sprintf("ErrorID:\t%d\n", c.ErrorID) +
 		fmt.Sprintf("Problem:\t%s\n", c.Problem) +
 		fmt.Sprintf("--- End ErrorGeneric ---\n")
 }

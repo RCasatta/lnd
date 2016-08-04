@@ -2,16 +2,14 @@ package channeldb
 
 import (
 	"bytes"
-	"encoding/hex"
-	"fmt"
+	"io"
 	"sync"
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcwallet/walletdb"
-	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -24,6 +22,15 @@ var (
 	// node's channel bucket in orer to facilitate sequential prefix scans
 	// to gather stats such as total satoshis received.
 	openChannelBucket = []byte("ocb")
+
+	// chanIDBucket is a thrid-level bucket stored within a node's ID bucket
+	// in the open channel bucket. The resolution path looks something like:
+	// ocb -> nodeID -> cib. This bucket contains a series of keys with no
+	// values, these keys are the channel ID's of all the active channels
+	// we currently have with a specified nodeID. This bucket acts as an
+	// additional indexing allowing random access and sequential scans over
+	// active channels.
+	chanIDBucket = []byte("cib")
 
 	// closedChannelBucket stores summarization information concerning
 	// previously open, but now closed channels.
@@ -91,7 +98,7 @@ type OpenChannel struct {
 	TheirLNID [wire.HashSize]byte
 
 	// The ID of a channel is the txid of the funding transaction.
-	ChanID [wire.HashSize]byte
+	ChanID *wire.OutPoint
 
 	MinFeePerKb btcutil.Amount
 	// Our reserve. Assume symmetric reserve amounts. Only needed if the
@@ -108,16 +115,16 @@ type OpenChannel struct {
 	OurBalance   btcutil.Amount
 	TheirBalance btcutil.Amount
 
-	// Commitment transactions for both sides (they're asymmetric). Our
-	// commitment transaction includes a valid sigScript, and is ready for
-	// broadcast.
-	TheirCommitTx *wire.MsgTx
-	OurCommitTx   *wire.MsgTx
+	// Our current commitment transaction along with their signature for
+	// our commitment transaction.
+	OurCommitTx  *wire.MsgTx
+	OurCommitSig []byte
 
-	// The final funding transaction. Kept for wallet-related records.
-	FundingTx *wire.MsgTx
+	// The outpoint of the final funding transaction.
+	FundingOutpoint *wire.OutPoint
 
-	MultiSigKey         *btcec.PrivateKey
+	OurMultiSigKey      *btcec.PrivateKey
+	TheirMultiSigKey    *btcec.PublicKey
 	FundingRedeemScript []byte
 
 	// In blocks
@@ -125,11 +132,12 @@ type OpenChannel struct {
 	RemoteCsvDelay uint32
 
 	// Current revocation for their commitment transaction. However, since
-	// this is the hash, and not the pre-image, we can't yet verify that
-	// it's actually in the chain.
-	TheirCurrentRevocation [20]byte
-	LocalElkrem            *elkrem.ElkremSender
-	RemoteElkrem           *elkrem.ElkremReceiver
+	// this the derived public key, we don't yet have the pre-image so we
+	// aren't yet able to verify that it's actually in the hash chain.
+	TheirCurrentRevocation     *btcec.PublicKey
+	TheirCurrentRevocationHash [32]byte
+	LocalElkrem                *elkrem.ElkremSender
+	RemoteElkrem               *elkrem.ElkremReceiver
 
 	// The pkScript for both sides to be used for final delivery in the case
 	// of a cooperative close.
@@ -142,7 +150,7 @@ type OpenChannel struct {
 	TotalNetFees          uint64    // TODO(roasbeef): total fees paid too?
 	CreationTime          time.Time // TODO(roasbeef): last update time?
 
-	// isPrevState denotes if this instane of an OpenChannel is a previous,
+	// isPrevState denotes if this instance of an OpenChannel is a previous,
 	// revoked channel state. If so, then the FullSynv, and UpdateState
 	// methods are disabled in order to prevent overiding the latest channel
 	// state.
@@ -155,26 +163,169 @@ type OpenChannel struct {
 	sync.RWMutex
 }
 
-// ChannelSnapshot....
+// FullSync serializes, and writes to disk the *full* channel state, using
+// both the active channel bucket to store the prefixed column fields, and the
+// remote node's ID to store the remainder of the channel state.
+//
+// NOTE: This method requires an active EncryptorDecryptor to be registered in
+// order to encrypt sensitive information.
+func (c *OpenChannel) FullSync() error {
+	return c.Db.store.Update(func(tx *bolt.Tx) error {
+		// TODO(roasbeef): add helper funcs to create scoped update
+		// First fetch the top level bucket which stores all data related to
+		// current, active channels.
+		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		// Within this top level bucket, fetch the bucket dedicated to storing
+		// open channel data specific to the remote node.
+		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(c.TheirLNID[:])
+		if err != nil {
+			return err
+		}
+
+		// Add this channel ID to the node's active channel index if
+		// it doesn't already exist.
+		chanIDBucket, err := nodeChanBucket.CreateBucketIfNotExists(chanIDBucket)
+		if err != nil {
+			return err
+		}
+		var b bytes.Buffer
+		if err := writeOutpoint(&b, c.ChanID); err != nil {
+			return err
+		}
+		if chanIDBucket.Get(b.Bytes()) == nil {
+			chanIDBucket.Put(b.Bytes(), nil)
+		}
+
+		return putOpenChannel(chanBucket, nodeChanBucket, c, c.Db.cryptoSystem)
+	})
+}
+
+// SyncRevocation writes to disk the current revocation state of the channel.
+// The revocation state is defined as the current elkrem receiver, and the
+// latest unrevoked key+hash for the remote party.
+func (c *OpenChannel) SyncRevocation() error {
+	return c.Db.store.Update(func(tx *bolt.Tx) error {
+		// First fetch the top level bucket which stores all data related to
+		// current, active channels.
+		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		// Within this top level bucket, fetch the bucket dedicated to storing
+		// open channel data specific to the remote node.
+		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(c.TheirLNID[:])
+		if err != nil {
+			return err
+		}
+
+		// Sync the current elkrem state to disk.
+		if err := putChanEklremState(nodeChanBucket, c); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+// CloseChannel closes a previously active lightning channel. Closing a channel
+// entails deleting all saved state within the database concerning this
+// channel, as well as created a small channel summary for record keeping
+// purposes.
+func (c *OpenChannel) CloseChannel() error {
+	return c.Db.store.Update(func(tx *bolt.Tx) error {
+		// First fetch the top level bucket which stores all data related to
+		// current, active channels.
+		chanBucket := tx.Bucket(openChannelBucket)
+		if chanBucket == nil {
+			return ErrNoChanDBExists
+		}
+
+		// Within this top level bucket, fetch the bucket dedicated to storing
+		// open channel data specific to the remote node.
+		nodeChanBucket := chanBucket.Bucket(c.TheirLNID[:])
+		if nodeChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		// Delete this channel ID from the node's active channel index.
+		chanIndexBucket := nodeChanBucket.Bucket(chanIDBucket)
+		if chanIndexBucket == nil {
+			return ErrNoActiveChannels
+		}
+		var b bytes.Buffer
+		if err := writeOutpoint(&b, c.ChanID); err != nil {
+			return err
+		}
+		outPointBytes := b.Bytes()
+		if err := chanIndexBucket.Delete(b.Bytes()); err != nil {
+			return err
+		}
+
+		// Now that the index to this channel has been deleted, purge
+		// the remaining channel meta-data from the databse.
+		if err := deleteOpenChannel(chanBucket, nodeChanBucket,
+			outPointBytes); err != nil {
+			return err
+		}
+
+		// Finally, create a summary of this channel in the closed
+		// channel bucket for this node.
+		return putClosedChannelSummary(tx, outPointBytes)
+	})
+}
+
+// ChannelSnapshot is a frozen snapshot of the current channel state. A
+// snapshot is detached from the original channel that generated it, providing
+// read-only access to the current or prior state of an active channel.
 // TODO(roasbeef): methods to roll forwards/backwards in state etc
 //  * use botldb cursor?
 type ChannelSnapshot struct {
-	OpenChannel
+	RemoteID [wire.HashSize]byte
+
+	ChannelPoint *wire.OutPoint
+
+	Capacity      btcutil.Amount
+	LocalBalance  btcutil.Amount
+	RemoteBalance btcutil.Amount
+
+	NumUpdates uint64
+
+	TotalSatoshisSent     uint64
+	TotalSatoshisReceived uint64
+
+	// TODO(roasbeef): fee stuff
 
 	// TODO(roasbeef): active HTLC's + their direction
-	updateNum      uint64
-	deltaNamespace walletdb.Namespace
+	updateNum uint64
+	channel   *OpenChannel
+}
+
+// Snapshot returns a read-only snapshot of the current channel state. This
+// snapshot includes information concerning the current settled balance within
+// the channel, meta-data detailing total flows, and any outstanding HTLCs.
+func (c *OpenChannel) Snapshot() *ChannelSnapshot {
+	snapshot := &ChannelSnapshot{
+		ChannelPoint:          c.ChanID,
+		Capacity:              c.Capacity,
+		LocalBalance:          c.OurBalance,
+		RemoteBalance:         c.TheirBalance,
+		NumUpdates:            c.NumUpdates,
+		TotalSatoshisSent:     c.TotalSatoshisSent,
+		TotalSatoshisReceived: c.TotalSatoshisReceived,
+	}
+	copy(snapshot.RemoteID[:], c.TheirLNID[:])
+
+	return snapshot
 }
 
 // FindPreviousState...
 // TODO(roasbeef): method to retrieve both old commitment txns given update #
 func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelSnapshot, error) {
-	return nil, nil
-}
-
-// Snapshot....
-// read-only snapshot
-func (c *OpenChannel) Snapshot() (*ChannelSnapshot, error) {
 	return nil, nil
 }
 
@@ -195,27 +346,17 @@ func (c OpenChannel) RecordChannelDelta(theirRevokedCommit *wire.MsgTx, updateNu
 	return nil
 }
 
-// FullSync serializes, and writes to disk the *full* channel state, using
-// both the active channel bucket to store the prefixed column fields, and the
-// remote node's ID to store the remainder of the channel state.
-//
-// NOTE: This method requires an active EncryptorDecryptor to be registered in
-// order to encrypt sensitive information.
-func (c *OpenChannel) FullSync() error {
-	return c.Db.store.Update(func(tx *bolt.Tx) error {
-		// First fetch the top level bucket which stores all data related to
-		// current, active channels.
-		chanBucket := tx.Bucket(openChannelBucket)
+func putClosedChannelSummary(tx *bolt.Tx, chanID []byte) error {
+	// For now, a summary of a closed channel simply involves recording the
+	// outpoint of the funding transaction.
+	closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
+	if err != nil {
+		return err
+	}
 
-		// WIthin this top level bucket, fetch the bucket dedicated to storing
-		// open channel data specific to the remote node.
-		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(c.TheirLNID[:])
-		if err != nil {
-			return err
-		}
-
-		return putOpenChannel(chanBucket, nodeChanBucket, c, c.Db.cryptoSystem)
-	})
+	// TODO(roasbeef): add other info
+	//  * should likely have each in own bucket per node
+	return closedChanBucket.Put(chanID, nil)
 }
 
 // putChannel serializes, and stores the current state of the channel in its
@@ -269,18 +410,12 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 // sensitive) the complete channel currently active with the passed nodeID.
 // An EncryptorDecryptor is required to decrypt sensitive information stored
 // within the database.
-func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeID [32]byte,
-	decryptor EncryptorDecryptor) (*OpenChannel, error) {
+func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
+	chanID *wire.OutPoint, decryptor EncryptorDecryptor) (*OpenChannel, error) {
 
-	// WIthin this top level bucket, fetch the bucket dedicated to storing
-	// open channel data specific to the remote node.
-	nodeChanBucket := openChanBucket.Bucket(nodeID[:])
-	if nodeChanBucket == nil {
-		return nil, fmt.Errorf("node chan bucket for node %v does not exist",
-			hex.EncodeToString(nodeID[:]))
+	channel := &OpenChannel{
+		ChanID: chanID,
 	}
-
-	channel := &OpenChannel{}
 
 	// First, read out the fields of the channel update less frequently.
 	if err := fetchChannelIDs(nodeChanBucket, channel); err != nil {
@@ -324,14 +459,64 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeID [32]byte,
 	return channel, nil
 }
 
+func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
+	channelID []byte) error {
+
+	// First we'll delete all the "common" top level items stored outside
+	// the node's channel bucket.
+	if err := deleteChanCapacity(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanMinFeePerKb(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanNumUpdates(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanTotalFlow(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanNetFee(openChanBucket, channelID); err != nil {
+		return err
+	}
+
+	// Finally, delete all the fields directly within the node's channel
+	// bucket.
+	if err := deleteChannelIDs(nodeChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanCommitKeys(nodeChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanCommitTxns(nodeChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanFundingInfo(nodeChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanEklremState(nodeChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanDeliveryScripts(nodeChanBucket, channelID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func putChanCapacity(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	// Some scratch bytes re-used for serializing each of the uint64's.
 	scratch1 := make([]byte, 8)
 	scratch2 := make([]byte, 8)
 	scratch3 := make([]byte, 8)
 
-	keyPrefix := make([]byte, 3+32)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix[3:], b.Bytes())
 
 	copy(keyPrefix[:3], chanCapacityPrefix)
 	byteOrder.PutUint64(scratch1, uint64(channel.Capacity))
@@ -350,10 +535,33 @@ func putChanCapacity(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	return openChanBucket.Put(keyPrefix, scratch3)
 }
 
+func deleteChanCapacity(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
+	copy(keyPrefix[3:], chanID)
+
+	copy(keyPrefix[:3], chanCapacityPrefix)
+	if err := openChanBucket.Delete(keyPrefix); err != nil {
+		return err
+	}
+
+	copy(keyPrefix[:3], selfBalancePrefix)
+	if err := openChanBucket.Delete(keyPrefix); err != nil {
+		return err
+	}
+
+	copy(keyPrefix[:3], theirBalancePrefix)
+	return openChanBucket.Delete(keyPrefix)
+}
+
 func fetchChanCapacity(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	// A byte slice re-used to compute each key prefix eblow.
-	keyPrefix := make([]byte, 3+32)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	// A byte slice re-used to compute each key prefix below.
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix[3:], b.Bytes())
 
 	copy(keyPrefix[:3], chanCapacityPrefix)
 	capacityBytes := openChanBucket.Get(keyPrefix)
@@ -374,17 +582,34 @@ func putChanMinFeePerKb(openChanBucket *bolt.Bucket, channel *OpenChannel) error
 	scratch := make([]byte, 8)
 	byteOrder.PutUint64(scratch, uint64(channel.MinFeePerKb))
 
-	keyPrefix := make([]byte, 3+32)
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
 	copy(keyPrefix, minFeePerKbPrefix)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	copy(keyPrefix[3:], b.Bytes())
 
 	return openChanBucket.Put(keyPrefix, scratch)
 }
 
-func fetchChanMinFeePerKb(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	keyPrefix := make([]byte, 3+32)
+func deleteChanMinFeePerKb(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
 	copy(keyPrefix, minFeePerKbPrefix)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	copy(keyPrefix[3:], chanID)
+	return openChanBucket.Delete(keyPrefix)
+}
+
+func fetchChanMinFeePerKb(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, minFeePerKbPrefix)
+	copy(keyPrefix[3:], b.Bytes())
 
 	feeBytes := openChanBucket.Get(keyPrefix)
 	channel.MinFeePerKb = btcutil.Amount(byteOrder.Uint64(feeBytes))
@@ -396,17 +621,34 @@ func putChanNumUpdates(openChanBucket *bolt.Bucket, channel *OpenChannel) error 
 	scratch := make([]byte, 8)
 	byteOrder.PutUint64(scratch, channel.NumUpdates)
 
-	keyPrefix := make([]byte, 3+32)
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
 	copy(keyPrefix, updatePrefix)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	copy(keyPrefix[3:], b.Bytes())
 
 	return openChanBucket.Put(keyPrefix, scratch)
 }
 
-func fetchChanNumUpdates(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	keyPrefix := make([]byte, 3+32)
+func deleteChanNumUpdates(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
 	copy(keyPrefix, updatePrefix)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	copy(keyPrefix[3:], chanID)
+	return openChanBucket.Delete(keyPrefix)
+}
+
+func fetchChanNumUpdates(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, updatePrefix)
+	copy(keyPrefix[3:], b.Bytes())
 
 	updateBytes := openChanBucket.Get(keyPrefix)
 	channel.NumUpdates = byteOrder.Uint64(updateBytes)
@@ -417,8 +659,14 @@ func fetchChanNumUpdates(openChanBucket *bolt.Bucket, channel *OpenChannel) erro
 func putChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	scratch1 := make([]byte, 8)
 	scratch2 := make([]byte, 8)
-	keyPrefix := make([]byte, 3+32)
-	copy(keyPrefix[3:], channel.ChanID[:])
+
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix[3:], b.Bytes())
 
 	copy(keyPrefix[:3], satSentPrefix)
 	byteOrder.PutUint64(scratch1, uint64(channel.TotalSatoshisSent))
@@ -431,9 +679,27 @@ func putChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	return openChanBucket.Put(keyPrefix, scratch2)
 }
 
+func deleteChanTotalFlow(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
+	copy(keyPrefix[3:], chanID)
+
+	copy(keyPrefix[:3], satSentPrefix)
+	if err := openChanBucket.Delete(keyPrefix); err != nil {
+		return err
+	}
+
+	copy(keyPrefix[:3], satRecievedPrefix)
+	return openChanBucket.Delete(keyPrefix)
+}
+
 func fetchChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	keyPrefix := make([]byte, 3+32)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix[3:], b.Bytes())
 
 	copy(keyPrefix[:3], satSentPrefix)
 	totalSentBytes := openChanBucket.Get(keyPrefix)
@@ -448,19 +714,37 @@ func fetchChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error
 
 func putChanNetFee(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	scratch := make([]byte, 8)
-	keyPrefix := make([]byte, 3+32)
 
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
 	copy(keyPrefix, netFeesPrefix)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	copy(keyPrefix[3:], b.Bytes())
+
 	byteOrder.PutUint64(scratch, uint64(channel.TotalNetFees))
 	return openChanBucket.Put(keyPrefix, scratch)
 }
 
-func fetchChanNetFee(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	keyPrefix := make([]byte, 3+32)
-
+func deleteChanNetFee(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
 	copy(keyPrefix, netFeesPrefix)
-	copy(keyPrefix[3:], channel.ChanID[:])
+	copy(keyPrefix[3:], chanID)
+	return openChanBucket.Delete(keyPrefix)
+}
+
+func fetchChanNetFee(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, netFeesPrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
 	feeBytes := openChanBucket.Get(keyPrefix)
 	channel.TotalNetFees = byteOrder.Uint64(feeBytes)
 
@@ -468,24 +752,57 @@ func fetchChanNetFee(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 }
 
 func putChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	idSlice := make([]byte, wire.HashSize*2)
-	copy(idSlice, channel.TheirLNID[:])
-	copy(idSlice[32:], channel.ChanID[:])
+	// TODO(roabeef): just pass in chanID everywhere for puts
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
 
-	return nodeChanBucket.Put(chanIDKey, idSlice)
+	// Construct the id key: cid || channelID.
+	// TODO(roasbeef): abstract out to func
+	idKey := make([]byte, len(chanIDKey)+b.Len())
+	copy(idKey[:3], chanIDKey)
+	copy(idKey[3:], b.Bytes())
+
+	return nodeChanBucket.Put(idKey, channel.TheirLNID[:])
+}
+
+func deleteChannelIDs(nodeChanBucket *bolt.Bucket, chanID []byte) error {
+	idKey := make([]byte, len(chanIDKey)+len(chanID))
+	copy(idKey[:3], chanIDKey)
+	copy(idKey[3:], chanID)
+	return nodeChanBucket.Delete(idKey)
 }
 
 func fetchChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	idBytes := nodeChanBucket.Get(chanIDKey)
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
 
-	copy(channel.TheirLNID[:], idBytes[:32])
-	copy(channel.ChanID[:], idBytes[32:])
+	// Construct the id key: cid || channelID.
+	idKey := make([]byte, len(chanIDKey)+b.Len())
+	copy(idKey[:3], chanIDKey)
+	copy(idKey[3:], b.Bytes())
+
+	idBytes := nodeChanBucket.Get(idKey)
+	copy(channel.TheirLNID[:], idBytes)
 
 	return nil
 }
 
 func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 	ed EncryptorDecryptor) error {
+
+	// Construct the key which stores the commitment keys: ckk || channelID.
+	// TODO(roasbeef): factor into func
+	var bc bytes.Buffer
+	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+	commitKey := make([]byte, len(commitKeys)+bc.Len())
+	copy(commitKey[:3], commitKeys)
+	copy(commitKey[3:], bc.Bytes())
 
 	var b bytes.Buffer
 
@@ -502,14 +819,31 @@ func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 		return err
 	}
 
-	return nodeChanBucket.Put(commitKeys, b.Bytes())
+	return nodeChanBucket.Put(commitKey, b.Bytes())
+}
+
+func deleteChanCommitKeys(nodeChanBucket *bolt.Bucket, chanID []byte) error {
+	commitKey := make([]byte, len(commitKeys)+len(chanID))
+	copy(commitKey[:3], commitKeys)
+	copy(commitKey[3:], chanID)
+	return nodeChanBucket.Delete(commitKey)
 }
 
 func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 	ed EncryptorDecryptor) error {
 
+	// Construct the key which stores the commitment keys: ckk || channelID.
+	// TODO(roasbeef): factor into func
+	var bc bytes.Buffer
+	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+	commitKey := make([]byte, len(commitKeys)+bc.Len())
+	copy(commitKey[:3], commitKeys)
+	copy(commitKey[3:], bc.Bytes())
+
 	var err error
-	keyBytes := nodeChanBucket.Get(commitKeys)
+	keyBytes := nodeChanBucket.Get(commitKey)
 
 	channel.TheirCommitKey, err = btcec.ParsePubKey(keyBytes[:33], btcec.S256())
 	if err != nil {
@@ -530,13 +864,21 @@ func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 }
 
 func putChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var bc bytes.Buffer
+	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+	txnsKey := make([]byte, len(commitTxnsKey)+bc.Len())
+	copy(txnsKey[:3], commitTxnsKey)
+	copy(txnsKey[3:], bc.Bytes())
+
 	var b bytes.Buffer
 
-	if err := channel.TheirCommitTx.Serialize(&b); err != nil {
+	if err := channel.OurCommitTx.Serialize(&b); err != nil {
 		return err
 	}
 
-	if err := channel.OurCommitTx.Serialize(&b); err != nil {
+	if err := wire.WriteVarBytes(&b, 0, channel.OurCommitSig); err != nil {
 		return err
 	}
 
@@ -550,19 +892,35 @@ func putChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error 
 		return err
 	}
 
-	return nodeChanBucket.Put(commitTxnsKey, b.Bytes())
+	return nodeChanBucket.Put(txnsKey, b.Bytes())
+}
+
+func deleteChanCommitTxns(nodeChanBucket *bolt.Bucket, chanID []byte) error {
+	txnsKey := make([]byte, len(commitTxnsKey)+len(chanID))
+	copy(txnsKey[:3], commitTxnsKey)
+	copy(txnsKey[3:], chanID)
+	return nodeChanBucket.Delete(txnsKey)
 }
 
 func fetchChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	txnBytes := bytes.NewReader(nodeChanBucket.Get(commitTxnsKey))
+	var bc bytes.Buffer
+	var err error
+	if err = writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+	txnsKey := make([]byte, len(commitTxnsKey)+bc.Len())
+	copy(txnsKey[:3], commitTxnsKey)
+	copy(txnsKey[3:], bc.Bytes())
 
-	channel.TheirCommitTx = wire.NewMsgTx()
-	if err := channel.TheirCommitTx.Deserialize(txnBytes); err != nil {
+	txnBytes := bytes.NewReader(nodeChanBucket.Get(txnsKey))
+
+	channel.OurCommitTx = wire.NewMsgTx()
+	if err = channel.OurCommitTx.Deserialize(txnBytes); err != nil {
 		return err
 	}
 
-	channel.OurCommitTx = wire.NewMsgTx()
-	if err := channel.OurCommitTx.Deserialize(txnBytes); err != nil {
+	channel.OurCommitSig, err = wire.ReadVarBytes(txnBytes, 0, 80, "")
+	if err != nil {
 		return err
 	}
 
@@ -583,17 +941,30 @@ func fetchChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) erro
 
 func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 	ed EncryptorDecryptor) error {
+
+	var bc bytes.Buffer
+	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+	fundTxnKey := make([]byte, len(fundingTxnKey)+bc.Len())
+	copy(fundTxnKey[:3], fundingTxnKey)
+	copy(fundTxnKey[3:], bc.Bytes())
+
 	var b bytes.Buffer
 
-	if err := channel.FundingTx.Serialize(&b); err != nil {
+	if err := writeOutpoint(&b, channel.FundingOutpoint); err != nil {
 		return err
 	}
 
-	encryptedPriv, err := ed.Encrypt(channel.MultiSigKey.Serialize())
+	encryptedPriv, err := ed.Encrypt(channel.OurMultiSigKey.Serialize())
 	if err != nil {
 		return err
 	}
 	if err := wire.WriteVarBytes(&b, 0, encryptedPriv); err != nil {
+		return err
+	}
+	theirSerKey := channel.TheirMultiSigKey.SerializeCompressed()
+	if err := wire.WriteVarBytes(&b, 0, theirSerKey); err != nil {
 		return err
 	}
 
@@ -608,16 +979,32 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 		return err
 	}
 
-	return nodeChanBucket.Put(fundingTxnKey, b.Bytes())
+	return nodeChanBucket.Put(fundTxnKey, b.Bytes())
+}
+
+func deleteChanFundingInfo(nodeChanBucket *bolt.Bucket, chanID []byte) error {
+	fundTxnKey := make([]byte, len(fundingTxnKey)+len(chanID))
+	copy(fundTxnKey[:3], fundingTxnKey)
+	copy(fundTxnKey[3:], chanID)
+	return nodeChanBucket.Delete(fundTxnKey)
 }
 
 func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 	ed EncryptorDecryptor) error {
 
-	infoBytes := bytes.NewReader(nodeChanBucket.Get(fundingTxnKey))
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+	fundTxnKey := make([]byte, len(fundingTxnKey)+b.Len())
+	copy(fundTxnKey[:3], fundingTxnKey)
+	copy(fundTxnKey[3:], b.Bytes())
 
-	channel.FundingTx = wire.NewMsgTx()
-	if err := channel.FundingTx.Deserialize(infoBytes); err != nil {
+	infoBytes := bytes.NewReader(nodeChanBucket.Get(fundTxnKey))
+
+	// TODO(roasbeef): can remove as channel ID *is* the funding point now.
+	channel.FundingOutpoint = &wire.OutPoint{}
+	if err := readOutpoint(infoBytes, channel.FundingOutpoint); err != nil {
 		return err
 	}
 
@@ -629,7 +1016,16 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 	if err != nil {
 		return err
 	}
-	channel.MultiSigKey, _ = btcec.PrivKeyFromBytes(btcec.S256(), decryptedPriv)
+	channel.OurMultiSigKey, _ = btcec.PrivKeyFromBytes(btcec.S256(), decryptedPriv)
+
+	theirKeyBytes, err := wire.ReadVarBytes(infoBytes, 0, 33, "")
+	if err != nil {
+		return err
+	}
+	channel.TheirMultiSigKey, err = btcec.ParsePubKey(theirKeyBytes, btcec.S256())
+	if err != nil {
+		return err
+	}
 
 	channel.FundingRedeemScript, err = wire.ReadVarBytes(infoBytes, 0, 520, "")
 	if err != nil {
@@ -647,16 +1043,29 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 }
 
 func putChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var bc bytes.Buffer
+	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+
+	elkremKey := make([]byte, len(elkremStateKey)+bc.Len())
+	copy(elkremKey[:3], elkremStateKey)
+	copy(elkremKey[3:], bc.Bytes())
+
 	var b bytes.Buffer
 
-	if _, err := b.Write(channel.TheirCurrentRevocation[:]); err != nil {
+	revKey := channel.TheirCurrentRevocation.SerializeCompressed()
+	if err := wire.WriteVarBytes(&b, 0, revKey); err != nil {
 		return err
 	}
 
-	senderBytes, err := channel.LocalElkrem.ToBytes()
-	if err != nil {
+	if _, err := b.Write(channel.TheirCurrentRevocationHash[:]); err != nil {
 		return err
 	}
+
+	// TODO(roasbeef): shouldn't be storing on disk, should re-derive as
+	// needed
+	senderBytes := channel.LocalElkrem.ToBytes()
 	if err := wire.WriteVarBytes(&b, 0, senderBytes); err != nil {
 		return err
 	}
@@ -669,25 +1078,50 @@ func putChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
-	return nodeChanBucket.Put(elkremStateKey, b.Bytes())
+	return nodeChanBucket.Put(elkremKey, b.Bytes())
+}
+
+func deleteChanEklremState(nodeChanBucket *bolt.Bucket, chanID []byte) error {
+	elkremKey := make([]byte, len(elkremStateKey)+len(chanID))
+	copy(elkremKey[:3], elkremStateKey)
+	copy(elkremKey[3:], chanID)
+	return nodeChanBucket.Delete(elkremKey)
 }
 
 func fetchChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	elkremStateBytes := bytes.NewReader(nodeChanBucket.Get(elkremStateKey))
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+	elkremKey := make([]byte, len(elkremStateKey)+b.Len())
+	copy(elkremKey[:3], elkremStateKey)
+	copy(elkremKey[3:], b.Bytes())
 
-	if _, err := elkremStateBytes.Read(channel.TheirCurrentRevocation[:]); err != nil {
+	elkremStateBytes := bytes.NewReader(nodeChanBucket.Get(elkremKey))
+
+	revKeyBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
+	if err != nil {
+		return err
+	}
+	channel.TheirCurrentRevocation, err = btcec.ParsePubKey(revKeyBytes, btcec.S256())
+	if err != nil {
 		return err
 	}
 
+	if _, err := elkremStateBytes.Read(channel.TheirCurrentRevocationHash[:]); err != nil {
+		return err
+	}
+
+	// TODO(roasbeef): should be rederiving on fly, or encrypting on disk.
 	senderBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
 	if err != nil {
 		return err
 	}
-	localE, err := elkrem.ElkremSenderFromBytes(senderBytes)
+	elkremRoot, err := wire.NewShaHash(senderBytes)
 	if err != nil {
 		return err
 	}
-	channel.LocalElkrem = &localE
+	channel.LocalElkrem = elkrem.NewElkremSender(*elkremRoot)
 
 	reciverBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
 	if err != nil {
@@ -697,12 +1131,20 @@ func fetchChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	if err != nil {
 		return err
 	}
-	channel.RemoteElkrem = &remoteE
+	channel.RemoteElkrem = remoteE
 
 	return nil
 }
 
 func putChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var bc bytes.Buffer
+	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+	deliveryKey := make([]byte, len(deliveryScriptsKey)+bc.Len())
+	copy(deliveryKey[:3], deliveryScriptsKey)
+	copy(deliveryKey[3:], bc.Bytes())
+
 	var b bytes.Buffer
 	if err := wire.WriteVarBytes(&b, 0, channel.OurDeliveryScript); err != nil {
 		return err
@@ -712,10 +1154,24 @@ func putChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel) e
 	}
 
 	return nodeChanBucket.Put(deliveryScriptsKey, b.Bytes())
+}
 
+func deleteChanDeliveryScripts(nodeChanBucket *bolt.Bucket, chanID []byte) error {
+	deliveryKey := make([]byte, len(deliveryScriptsKey)+len(chanID))
+	copy(deliveryKey[:3], deliveryScriptsKey)
+	copy(deliveryKey[3:], chanID)
+	return nodeChanBucket.Delete(deliveryScriptsKey)
 }
 
 func fetchChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+	deliveryKey := make([]byte, len(deliveryScriptsKey)+b.Len())
+	copy(deliveryKey[:3], deliveryScriptsKey)
+	copy(deliveryKey[3:], b.Bytes())
+
 	var err error
 	deliveryBytes := bytes.NewReader(nodeChanBucket.Get(deliveryScriptsKey))
 
@@ -728,6 +1184,38 @@ func fetchChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel)
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
+	scratch := make([]byte, 4)
+
+	if err := wire.WriteVarBytes(w, 0, o.Hash[:]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch, o.Index)
+	if _, err := w.Write(scratch); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func readOutpoint(r io.Reader, o *wire.OutPoint) error {
+	scratch := make([]byte, 4)
+
+	txid, err := wire.ReadVarBytes(r, 0, 32, "prevout")
+	if err != nil {
+		return err
+	}
+	copy(o.Hash[:], txid)
+
+	if _, err := r.Read(scratch); err != nil {
+		return err
+	}
+	o.Index = byteOrder.Uint32(scratch)
 
 	return nil
 }

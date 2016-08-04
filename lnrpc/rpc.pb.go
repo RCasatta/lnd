@@ -9,12 +9,36 @@ It is generated from these files:
 	rpc.proto
 
 It has these top-level messages:
+	SendRequest
+	SendResponse
+	ChannelPoint
+	LightningAddress
 	SendManyRequest
 	SendManyResponse
+	SendCoinsRequest
+	SendCoinsResponse
 	NewAddressRequest
 	NewAddressResponse
 	ConnectPeerRequest
 	ConnectPeerResponse
+	HTLC
+	ActiveChannel
+	Peer
+	ListPeersRequest
+	ListPeersResponse
+	GetInfoRequest
+	GetInfoResponse
+	ConfirmationUpdate
+	ChannelOpenUpdate
+	ChannelCloseUpdate
+	CloseChannelRequest
+	CloseStatusUpdate
+	OpenChannelRequest
+	OpenStatusUpdate
+	PendingChannelRequest
+	PendingChannelResponse
+	WalletBalanceRequest
+	WalletBalanceResponse
 */
 package lnrpc
 
@@ -34,7 +58,33 @@ var _ = math.Inf
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the proto package it is being compiled against.
-const _ = proto.ProtoPackageIsVersion1
+// A compilation error at this line likely means your copy of the
+// proto package needs to be updated.
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+
+type ChannelStatus int32
+
+const (
+	ChannelStatus_ALL     ChannelStatus = 0
+	ChannelStatus_OPENING ChannelStatus = 1
+	ChannelStatus_CLOSING ChannelStatus = 2
+)
+
+var ChannelStatus_name = map[int32]string{
+	0: "ALL",
+	1: "OPENING",
+	2: "CLOSING",
+}
+var ChannelStatus_value = map[string]int32{
+	"ALL":     0,
+	"OPENING": 1,
+	"CLOSING": 2,
+}
+
+func (x ChannelStatus) String() string {
+	return proto.EnumName(ChannelStatus_name, int32(x))
+}
+func (ChannelStatus) EnumDescriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
 type NewAddressRequest_AddressType int32
 
@@ -59,8 +109,48 @@ func (x NewAddressRequest_AddressType) String() string {
 	return proto.EnumName(NewAddressRequest_AddressType_name, int32(x))
 }
 func (NewAddressRequest_AddressType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor0, []int{2, 0}
+	return fileDescriptor0, []int{8, 0}
 }
+
+type SendRequest struct {
+	Dest        []byte `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
+	Amt         int64  `protobuf:"varint,2,opt,name=amt" json:"amt,omitempty"`
+	PaymentHash []byte `protobuf:"bytes,3,opt,name=payment_hash,proto3" json:"payment_hash,omitempty"`
+	FastSend    bool   `protobuf:"varint,4,opt,name=fast_send" json:"fast_send,omitempty"`
+}
+
+func (m *SendRequest) Reset()                    { *m = SendRequest{} }
+func (m *SendRequest) String() string            { return proto.CompactTextString(m) }
+func (*SendRequest) ProtoMessage()               {}
+func (*SendRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+
+type SendResponse struct {
+}
+
+func (m *SendResponse) Reset()                    { *m = SendResponse{} }
+func (m *SendResponse) String() string            { return proto.CompactTextString(m) }
+func (*SendResponse) ProtoMessage()               {}
+func (*SendResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
+type ChannelPoint struct {
+	FundingTxid []byte `protobuf:"bytes,1,opt,name=funding_txid,proto3" json:"funding_txid,omitempty"`
+	OutputIndex uint32 `protobuf:"varint,2,opt,name=output_index" json:"output_index,omitempty"`
+}
+
+func (m *ChannelPoint) Reset()                    { *m = ChannelPoint{} }
+func (m *ChannelPoint) String() string            { return proto.CompactTextString(m) }
+func (*ChannelPoint) ProtoMessage()               {}
+func (*ChannelPoint) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+
+type LightningAddress struct {
+	PubKeyHash string `protobuf:"bytes,1,opt,name=pubKeyHash" json:"pubKeyHash,omitempty"`
+	Host       string `protobuf:"bytes,2,opt,name=host" json:"host,omitempty"`
+}
+
+func (m *LightningAddress) Reset()                    { *m = LightningAddress{} }
+func (m *LightningAddress) String() string            { return proto.CompactTextString(m) }
+func (*LightningAddress) ProtoMessage()               {}
+func (*LightningAddress) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
 
 type SendManyRequest struct {
 	AddrToAmount map[string]int64 `protobuf:"bytes,1,rep,name=AddrToAmount" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
@@ -69,7 +159,7 @@ type SendManyRequest struct {
 func (m *SendManyRequest) Reset()                    { *m = SendManyRequest{} }
 func (m *SendManyRequest) String() string            { return proto.CompactTextString(m) }
 func (*SendManyRequest) ProtoMessage()               {}
-func (*SendManyRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+func (*SendManyRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
 
 func (m *SendManyRequest) GetAddrToAmount() map[string]int64 {
 	if m != nil {
@@ -85,7 +175,26 @@ type SendManyResponse struct {
 func (m *SendManyResponse) Reset()                    { *m = SendManyResponse{} }
 func (m *SendManyResponse) String() string            { return proto.CompactTextString(m) }
 func (*SendManyResponse) ProtoMessage()               {}
-func (*SendManyResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+func (*SendManyResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
+
+type SendCoinsRequest struct {
+	Addr   string `protobuf:"bytes,1,opt,name=addr" json:"addr,omitempty"`
+	Amount int64  `protobuf:"varint,2,opt,name=amount" json:"amount,omitempty"`
+}
+
+func (m *SendCoinsRequest) Reset()                    { *m = SendCoinsRequest{} }
+func (m *SendCoinsRequest) String() string            { return proto.CompactTextString(m) }
+func (*SendCoinsRequest) ProtoMessage()               {}
+func (*SendCoinsRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{6} }
+
+type SendCoinsResponse struct {
+	Txid string `protobuf:"bytes,1,opt,name=txid" json:"txid,omitempty"`
+}
+
+func (m *SendCoinsResponse) Reset()                    { *m = SendCoinsResponse{} }
+func (m *SendCoinsResponse) String() string            { return proto.CompactTextString(m) }
+func (*SendCoinsResponse) ProtoMessage()               {}
+func (*SendCoinsResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{7} }
 
 type NewAddressRequest struct {
 	Type NewAddressRequest_AddressType `protobuf:"varint,1,opt,name=type,enum=lnrpc.NewAddressRequest_AddressType" json:"type,omitempty"`
@@ -94,7 +203,7 @@ type NewAddressRequest struct {
 func (m *NewAddressRequest) Reset()                    { *m = NewAddressRequest{} }
 func (m *NewAddressRequest) String() string            { return proto.CompactTextString(m) }
 func (*NewAddressRequest) ProtoMessage()               {}
-func (*NewAddressRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+func (*NewAddressRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{8} }
 
 type NewAddressResponse struct {
 	Address string `protobuf:"bytes,1,opt,name=address" json:"address,omitempty"`
@@ -103,33 +212,551 @@ type NewAddressResponse struct {
 func (m *NewAddressResponse) Reset()                    { *m = NewAddressResponse{} }
 func (m *NewAddressResponse) String() string            { return proto.CompactTextString(m) }
 func (*NewAddressResponse) ProtoMessage()               {}
-func (*NewAddressResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+func (*NewAddressResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{9} }
 
 type ConnectPeerRequest struct {
-	IdAtHost string `protobuf:"bytes,1,opt,name=idAtHost" json:"idAtHost,omitempty"`
+	Addr *LightningAddress `protobuf:"bytes,1,opt,name=addr" json:"addr,omitempty"`
 }
 
 func (m *ConnectPeerRequest) Reset()                    { *m = ConnectPeerRequest{} }
 func (m *ConnectPeerRequest) String() string            { return proto.CompactTextString(m) }
 func (*ConnectPeerRequest) ProtoMessage()               {}
-func (*ConnectPeerRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
+func (*ConnectPeerRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{10} }
+
+func (m *ConnectPeerRequest) GetAddr() *LightningAddress {
+	if m != nil {
+		return m.Addr
+	}
+	return nil
+}
 
 type ConnectPeerResponse struct {
-	LnID []byte `protobuf:"bytes,1,opt,name=lnID,proto3" json:"lnID,omitempty"`
+	PeerId int32 `protobuf:"varint,1,opt,name=peer_id" json:"peer_id,omitempty"`
 }
 
 func (m *ConnectPeerResponse) Reset()                    { *m = ConnectPeerResponse{} }
 func (m *ConnectPeerResponse) String() string            { return proto.CompactTextString(m) }
 func (*ConnectPeerResponse) ProtoMessage()               {}
-func (*ConnectPeerResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
+func (*ConnectPeerResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{11} }
+
+type HTLC struct {
+	Id       int64  `protobuf:"varint,1,opt,name=id" json:"id,omitempty"`
+	Amount   int64  `protobuf:"varint,2,opt,name=amount" json:"amount,omitempty"`
+	HashLock []byte `protobuf:"bytes,3,opt,name=hash_lock,proto3" json:"hash_lock,omitempty"`
+	ToUs     bool   `protobuf:"varint,4,opt,name=to_us" json:"to_us,omitempty"`
+}
+
+func (m *HTLC) Reset()                    { *m = HTLC{} }
+func (m *HTLC) String() string            { return proto.CompactTextString(m) }
+func (*HTLC) ProtoMessage()               {}
+func (*HTLC) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{12} }
+
+type ActiveChannel struct {
+	// TODO(roasbeef): make channel points a string everywhere in rpc?
+	RemoteId         string  `protobuf:"bytes,1,opt,name=remote_id" json:"remote_id,omitempty"`
+	ChannelPoint     string  `protobuf:"bytes,2,opt,name=channel_point" json:"channel_point,omitempty"`
+	Capacity         int64   `protobuf:"varint,3,opt,name=capacity" json:"capacity,omitempty"`
+	LocalBalance     int64   `protobuf:"varint,4,opt,name=local_balance" json:"local_balance,omitempty"`
+	RemoteBalance    int64   `protobuf:"varint,5,opt,name=remote_balance" json:"remote_balance,omitempty"`
+	UnsettledBelance int64   `protobuf:"varint,6,opt,name=unsettled_belance" json:"unsettled_belance,omitempty"`
+	PendingHtlcs     []*HTLC `protobuf:"bytes,7,rep,name=pending_htlcs" json:"pending_htlcs,omitempty"`
+	NumUpdates       uint64  `protobuf:"varint,8,opt,name=num_updates" json:"num_updates,omitempty"`
+}
+
+func (m *ActiveChannel) Reset()                    { *m = ActiveChannel{} }
+func (m *ActiveChannel) String() string            { return proto.CompactTextString(m) }
+func (*ActiveChannel) ProtoMessage()               {}
+func (*ActiveChannel) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{13} }
+
+func (m *ActiveChannel) GetPendingHtlcs() []*HTLC {
+	if m != nil {
+		return m.PendingHtlcs
+	}
+	return nil
+}
+
+type Peer struct {
+	LightningId string `protobuf:"bytes,1,opt,name=lightning_id" json:"lightning_id,omitempty"`
+	PeerId      int32  `protobuf:"varint,2,opt,name=peer_id" json:"peer_id,omitempty"`
+	Address     string `protobuf:"bytes,3,opt,name=address" json:"address,omitempty"`
+	BytesSent   uint64 `protobuf:"varint,4,opt,name=bytes_sent" json:"bytes_sent,omitempty"`
+	BytesRecv   uint64 `protobuf:"varint,5,opt,name=bytes_recv" json:"bytes_recv,omitempty"`
+	SatSent     int64  `protobuf:"varint,6,opt,name=sat_sent" json:"sat_sent,omitempty"`
+	SatRecv     int64  `protobuf:"varint,7,opt,name=sat_recv" json:"sat_recv,omitempty"`
+	Inbound     bool   `protobuf:"varint,8,opt,name=inbound" json:"inbound,omitempty"`
+	// TODO(roasbeef): add pending channels
+	Channels []*ActiveChannel `protobuf:"bytes,9,rep,name=channels" json:"channels,omitempty"`
+}
+
+func (m *Peer) Reset()                    { *m = Peer{} }
+func (m *Peer) String() string            { return proto.CompactTextString(m) }
+func (*Peer) ProtoMessage()               {}
+func (*Peer) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{14} }
+
+func (m *Peer) GetChannels() []*ActiveChannel {
+	if m != nil {
+		return m.Channels
+	}
+	return nil
+}
+
+type ListPeersRequest struct {
+}
+
+func (m *ListPeersRequest) Reset()                    { *m = ListPeersRequest{} }
+func (m *ListPeersRequest) String() string            { return proto.CompactTextString(m) }
+func (*ListPeersRequest) ProtoMessage()               {}
+func (*ListPeersRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{15} }
+
+type ListPeersResponse struct {
+	Peers []*Peer `protobuf:"bytes,1,rep,name=peers" json:"peers,omitempty"`
+}
+
+func (m *ListPeersResponse) Reset()                    { *m = ListPeersResponse{} }
+func (m *ListPeersResponse) String() string            { return proto.CompactTextString(m) }
+func (*ListPeersResponse) ProtoMessage()               {}
+func (*ListPeersResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{16} }
+
+func (m *ListPeersResponse) GetPeers() []*Peer {
+	if m != nil {
+		return m.Peers
+	}
+	return nil
+}
+
+type GetInfoRequest struct {
+}
+
+func (m *GetInfoRequest) Reset()                    { *m = GetInfoRequest{} }
+func (m *GetInfoRequest) String() string            { return proto.CompactTextString(m) }
+func (*GetInfoRequest) ProtoMessage()               {}
+func (*GetInfoRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{17} }
+
+type GetInfoResponse struct {
+	LightningId        string `protobuf:"bytes,1,opt,name=lightning_id" json:"lightning_id,omitempty"`
+	IdentityAddress    string `protobuf:"bytes,2,opt,name=identity_address" json:"identity_address,omitempty"`
+	NumPendingChannels uint32 `protobuf:"varint,3,opt,name=num_pending_channels" json:"num_pending_channels,omitempty"`
+	NumActiveChannels  uint32 `protobuf:"varint,4,opt,name=num_active_channels" json:"num_active_channels,omitempty"`
+	NumPeers           uint32 `protobuf:"varint,5,opt,name=num_peers" json:"num_peers,omitempty"`
+}
+
+func (m *GetInfoResponse) Reset()                    { *m = GetInfoResponse{} }
+func (m *GetInfoResponse) String() string            { return proto.CompactTextString(m) }
+func (*GetInfoResponse) ProtoMessage()               {}
+func (*GetInfoResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{18} }
+
+type ConfirmationUpdate struct {
+	BlockSha     []byte `protobuf:"bytes,1,opt,name=block_sha,proto3" json:"block_sha,omitempty"`
+	BlockHeight  int32  `protobuf:"varint,2,opt,name=block_height" json:"block_height,omitempty"`
+	NumConfsLeft uint32 `protobuf:"varint,3,opt,name=num_confs_left" json:"num_confs_left,omitempty"`
+}
+
+func (m *ConfirmationUpdate) Reset()                    { *m = ConfirmationUpdate{} }
+func (m *ConfirmationUpdate) String() string            { return proto.CompactTextString(m) }
+func (*ConfirmationUpdate) ProtoMessage()               {}
+func (*ConfirmationUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{19} }
+
+type ChannelOpenUpdate struct {
+	ChannelPoint *ChannelPoint `protobuf:"bytes,1,opt,name=channel_point" json:"channel_point,omitempty"`
+}
+
+func (m *ChannelOpenUpdate) Reset()                    { *m = ChannelOpenUpdate{} }
+func (m *ChannelOpenUpdate) String() string            { return proto.CompactTextString(m) }
+func (*ChannelOpenUpdate) ProtoMessage()               {}
+func (*ChannelOpenUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{20} }
+
+func (m *ChannelOpenUpdate) GetChannelPoint() *ChannelPoint {
+	if m != nil {
+		return m.ChannelPoint
+	}
+	return nil
+}
+
+type ChannelCloseUpdate struct {
+	ClosingTxid []byte `protobuf:"bytes,1,opt,name=closing_txid,proto3" json:"closing_txid,omitempty"`
+	Success     bool   `protobuf:"varint,2,opt,name=success" json:"success,omitempty"`
+}
+
+func (m *ChannelCloseUpdate) Reset()                    { *m = ChannelCloseUpdate{} }
+func (m *ChannelCloseUpdate) String() string            { return proto.CompactTextString(m) }
+func (*ChannelCloseUpdate) ProtoMessage()               {}
+func (*ChannelCloseUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{21} }
+
+type CloseChannelRequest struct {
+	ChannelPoint    *ChannelPoint `protobuf:"bytes,1,opt,name=channel_point" json:"channel_point,omitempty"`
+	TimeLimit       int64         `protobuf:"varint,2,opt,name=time_limit" json:"time_limit,omitempty"`
+	AllowForceClose bool          `protobuf:"varint,3,opt,name=allow_force_close" json:"allow_force_close,omitempty"`
+}
+
+func (m *CloseChannelRequest) Reset()                    { *m = CloseChannelRequest{} }
+func (m *CloseChannelRequest) String() string            { return proto.CompactTextString(m) }
+func (*CloseChannelRequest) ProtoMessage()               {}
+func (*CloseChannelRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{22} }
+
+func (m *CloseChannelRequest) GetChannelPoint() *ChannelPoint {
+	if m != nil {
+		return m.ChannelPoint
+	}
+	return nil
+}
+
+type CloseStatusUpdate struct {
+	// Types that are valid to be assigned to Update:
+	//	*CloseStatusUpdate_Confirmation
+	//	*CloseStatusUpdate_ChanClose
+	Update isCloseStatusUpdate_Update `protobuf_oneof:"update"`
+}
+
+func (m *CloseStatusUpdate) Reset()                    { *m = CloseStatusUpdate{} }
+func (m *CloseStatusUpdate) String() string            { return proto.CompactTextString(m) }
+func (*CloseStatusUpdate) ProtoMessage()               {}
+func (*CloseStatusUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{23} }
+
+type isCloseStatusUpdate_Update interface {
+	isCloseStatusUpdate_Update()
+}
+
+type CloseStatusUpdate_Confirmation struct {
+	Confirmation *ConfirmationUpdate `protobuf:"bytes,1,opt,name=confirmation,oneof"`
+}
+type CloseStatusUpdate_ChanClose struct {
+	ChanClose *ChannelCloseUpdate `protobuf:"bytes,2,opt,name=chan_close,oneof"`
+}
+
+func (*CloseStatusUpdate_Confirmation) isCloseStatusUpdate_Update() {}
+func (*CloseStatusUpdate_ChanClose) isCloseStatusUpdate_Update()    {}
+
+func (m *CloseStatusUpdate) GetUpdate() isCloseStatusUpdate_Update {
+	if m != nil {
+		return m.Update
+	}
+	return nil
+}
+
+func (m *CloseStatusUpdate) GetConfirmation() *ConfirmationUpdate {
+	if x, ok := m.GetUpdate().(*CloseStatusUpdate_Confirmation); ok {
+		return x.Confirmation
+	}
+	return nil
+}
+
+func (m *CloseStatusUpdate) GetChanClose() *ChannelCloseUpdate {
+	if x, ok := m.GetUpdate().(*CloseStatusUpdate_ChanClose); ok {
+		return x.ChanClose
+	}
+	return nil
+}
+
+// XXX_OneofFuncs is for the internal use of the proto package.
+func (*CloseStatusUpdate) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
+	return _CloseStatusUpdate_OneofMarshaler, _CloseStatusUpdate_OneofUnmarshaler, _CloseStatusUpdate_OneofSizer, []interface{}{
+		(*CloseStatusUpdate_Confirmation)(nil),
+		(*CloseStatusUpdate_ChanClose)(nil),
+	}
+}
+
+func _CloseStatusUpdate_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
+	m := msg.(*CloseStatusUpdate)
+	// update
+	switch x := m.Update.(type) {
+	case *CloseStatusUpdate_Confirmation:
+		b.EncodeVarint(1<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.Confirmation); err != nil {
+			return err
+		}
+	case *CloseStatusUpdate_ChanClose:
+		b.EncodeVarint(2<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.ChanClose); err != nil {
+			return err
+		}
+	case nil:
+	default:
+		return fmt.Errorf("CloseStatusUpdate.Update has unexpected type %T", x)
+	}
+	return nil
+}
+
+func _CloseStatusUpdate_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
+	m := msg.(*CloseStatusUpdate)
+	switch tag {
+	case 1: // update.confirmation
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(ConfirmationUpdate)
+		err := b.DecodeMessage(msg)
+		m.Update = &CloseStatusUpdate_Confirmation{msg}
+		return true, err
+	case 2: // update.chan_close
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(ChannelCloseUpdate)
+		err := b.DecodeMessage(msg)
+		m.Update = &CloseStatusUpdate_ChanClose{msg}
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func _CloseStatusUpdate_OneofSizer(msg proto.Message) (n int) {
+	m := msg.(*CloseStatusUpdate)
+	// update
+	switch x := m.Update.(type) {
+	case *CloseStatusUpdate_Confirmation:
+		s := proto.Size(x.Confirmation)
+		n += proto.SizeVarint(1<<3 | proto.WireBytes)
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *CloseStatusUpdate_ChanClose:
+		s := proto.Size(x.ChanClose)
+		n += proto.SizeVarint(2<<3 | proto.WireBytes)
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case nil:
+	default:
+		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
+	}
+	return n
+}
+
+type OpenChannelRequest struct {
+	TargetPeerId        int32             `protobuf:"varint,1,opt,name=target_peer_id" json:"target_peer_id,omitempty"`
+	TargetNode          *LightningAddress `protobuf:"bytes,2,opt,name=target_node" json:"target_node,omitempty"`
+	LocalFundingAmount  int64             `protobuf:"varint,3,opt,name=local_funding_amount" json:"local_funding_amount,omitempty"`
+	RemoteFundingAmount int64             `protobuf:"varint,4,opt,name=remote_funding_amount" json:"remote_funding_amount,omitempty"`
+	CommissionSize      int64             `protobuf:"varint,5,opt,name=commission_size" json:"commission_size,omitempty"`
+	NumConfs            uint32            `protobuf:"varint,6,opt,name=num_confs" json:"num_confs,omitempty"`
+}
+
+func (m *OpenChannelRequest) Reset()                    { *m = OpenChannelRequest{} }
+func (m *OpenChannelRequest) String() string            { return proto.CompactTextString(m) }
+func (*OpenChannelRequest) ProtoMessage()               {}
+func (*OpenChannelRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{24} }
+
+func (m *OpenChannelRequest) GetTargetNode() *LightningAddress {
+	if m != nil {
+		return m.TargetNode
+	}
+	return nil
+}
+
+type OpenStatusUpdate struct {
+	// Types that are valid to be assigned to Update:
+	//	*OpenStatusUpdate_Confirmation
+	//	*OpenStatusUpdate_ChanOpen
+	Update isOpenStatusUpdate_Update `protobuf_oneof:"update"`
+}
+
+func (m *OpenStatusUpdate) Reset()                    { *m = OpenStatusUpdate{} }
+func (m *OpenStatusUpdate) String() string            { return proto.CompactTextString(m) }
+func (*OpenStatusUpdate) ProtoMessage()               {}
+func (*OpenStatusUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{25} }
+
+type isOpenStatusUpdate_Update interface {
+	isOpenStatusUpdate_Update()
+}
+
+type OpenStatusUpdate_Confirmation struct {
+	Confirmation *ConfirmationUpdate `protobuf:"bytes,1,opt,name=confirmation,oneof"`
+}
+type OpenStatusUpdate_ChanOpen struct {
+	ChanOpen *ChannelOpenUpdate `protobuf:"bytes,2,opt,name=chan_open,oneof"`
+}
+
+func (*OpenStatusUpdate_Confirmation) isOpenStatusUpdate_Update() {}
+func (*OpenStatusUpdate_ChanOpen) isOpenStatusUpdate_Update()     {}
+
+func (m *OpenStatusUpdate) GetUpdate() isOpenStatusUpdate_Update {
+	if m != nil {
+		return m.Update
+	}
+	return nil
+}
+
+func (m *OpenStatusUpdate) GetConfirmation() *ConfirmationUpdate {
+	if x, ok := m.GetUpdate().(*OpenStatusUpdate_Confirmation); ok {
+		return x.Confirmation
+	}
+	return nil
+}
+
+func (m *OpenStatusUpdate) GetChanOpen() *ChannelOpenUpdate {
+	if x, ok := m.GetUpdate().(*OpenStatusUpdate_ChanOpen); ok {
+		return x.ChanOpen
+	}
+	return nil
+}
+
+// XXX_OneofFuncs is for the internal use of the proto package.
+func (*OpenStatusUpdate) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
+	return _OpenStatusUpdate_OneofMarshaler, _OpenStatusUpdate_OneofUnmarshaler, _OpenStatusUpdate_OneofSizer, []interface{}{
+		(*OpenStatusUpdate_Confirmation)(nil),
+		(*OpenStatusUpdate_ChanOpen)(nil),
+	}
+}
+
+func _OpenStatusUpdate_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
+	m := msg.(*OpenStatusUpdate)
+	// update
+	switch x := m.Update.(type) {
+	case *OpenStatusUpdate_Confirmation:
+		b.EncodeVarint(1<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.Confirmation); err != nil {
+			return err
+		}
+	case *OpenStatusUpdate_ChanOpen:
+		b.EncodeVarint(2<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.ChanOpen); err != nil {
+			return err
+		}
+	case nil:
+	default:
+		return fmt.Errorf("OpenStatusUpdate.Update has unexpected type %T", x)
+	}
+	return nil
+}
+
+func _OpenStatusUpdate_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
+	m := msg.(*OpenStatusUpdate)
+	switch tag {
+	case 1: // update.confirmation
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(ConfirmationUpdate)
+		err := b.DecodeMessage(msg)
+		m.Update = &OpenStatusUpdate_Confirmation{msg}
+		return true, err
+	case 2: // update.chan_open
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(ChannelOpenUpdate)
+		err := b.DecodeMessage(msg)
+		m.Update = &OpenStatusUpdate_ChanOpen{msg}
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func _OpenStatusUpdate_OneofSizer(msg proto.Message) (n int) {
+	m := msg.(*OpenStatusUpdate)
+	// update
+	switch x := m.Update.(type) {
+	case *OpenStatusUpdate_Confirmation:
+		s := proto.Size(x.Confirmation)
+		n += proto.SizeVarint(1<<3 | proto.WireBytes)
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *OpenStatusUpdate_ChanOpen:
+		s := proto.Size(x.ChanOpen)
+		n += proto.SizeVarint(2<<3 | proto.WireBytes)
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case nil:
+	default:
+		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
+	}
+	return n
+}
+
+type PendingChannelRequest struct {
+	Status ChannelStatus `protobuf:"varint,1,opt,name=status,enum=lnrpc.ChannelStatus" json:"status,omitempty"`
+}
+
+func (m *PendingChannelRequest) Reset()                    { *m = PendingChannelRequest{} }
+func (m *PendingChannelRequest) String() string            { return proto.CompactTextString(m) }
+func (*PendingChannelRequest) ProtoMessage()               {}
+func (*PendingChannelRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{26} }
+
+type PendingChannelResponse struct {
+	PendingChannels []*PendingChannelResponse_PendingChannel `protobuf:"bytes,1,rep,name=pending_channels" json:"pending_channels,omitempty"`
+}
+
+func (m *PendingChannelResponse) Reset()                    { *m = PendingChannelResponse{} }
+func (m *PendingChannelResponse) String() string            { return proto.CompactTextString(m) }
+func (*PendingChannelResponse) ProtoMessage()               {}
+func (*PendingChannelResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{27} }
+
+func (m *PendingChannelResponse) GetPendingChannels() []*PendingChannelResponse_PendingChannel {
+	if m != nil {
+		return m.PendingChannels
+	}
+	return nil
+}
+
+type PendingChannelResponse_PendingChannel struct {
+	PeerId        int32         `protobuf:"varint,1,opt,name=peer_id" json:"peer_id,omitempty"`
+	LightningId   string        `protobuf:"bytes,2,opt,name=lightning_id" json:"lightning_id,omitempty"`
+	ChannelPoint  string        `protobuf:"bytes,3,opt,name=channel_point" json:"channel_point,omitempty"`
+	Capacity      int64         `protobuf:"varint,4,opt,name=capacity" json:"capacity,omitempty"`
+	LocalBalance  int64         `protobuf:"varint,5,opt,name=local_balance" json:"local_balance,omitempty"`
+	RemoteBalance int64         `protobuf:"varint,6,opt,name=remote_balance" json:"remote_balance,omitempty"`
+	ClosingTxid   string        `protobuf:"bytes,7,opt,name=closing_txid" json:"closing_txid,omitempty"`
+	Status        ChannelStatus `protobuf:"varint,8,opt,name=status,enum=lnrpc.ChannelStatus" json:"status,omitempty"`
+}
+
+func (m *PendingChannelResponse_PendingChannel) Reset()         { *m = PendingChannelResponse_PendingChannel{} }
+func (m *PendingChannelResponse_PendingChannel) String() string { return proto.CompactTextString(m) }
+func (*PendingChannelResponse_PendingChannel) ProtoMessage()    {}
+func (*PendingChannelResponse_PendingChannel) Descriptor() ([]byte, []int) {
+	return fileDescriptor0, []int{27, 0}
+}
+
+type WalletBalanceRequest struct {
+	WitnessOnly bool `protobuf:"varint,1,opt,name=witness_only" json:"witness_only,omitempty"`
+}
+
+func (m *WalletBalanceRequest) Reset()                    { *m = WalletBalanceRequest{} }
+func (m *WalletBalanceRequest) String() string            { return proto.CompactTextString(m) }
+func (*WalletBalanceRequest) ProtoMessage()               {}
+func (*WalletBalanceRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{28} }
+
+type WalletBalanceResponse struct {
+	Balance float64 `protobuf:"fixed64,1,opt,name=balance" json:"balance,omitempty"`
+}
+
+func (m *WalletBalanceResponse) Reset()                    { *m = WalletBalanceResponse{} }
+func (m *WalletBalanceResponse) String() string            { return proto.CompactTextString(m) }
+func (*WalletBalanceResponse) ProtoMessage()               {}
+func (*WalletBalanceResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{29} }
 
 func init() {
+	proto.RegisterType((*SendRequest)(nil), "lnrpc.SendRequest")
+	proto.RegisterType((*SendResponse)(nil), "lnrpc.SendResponse")
+	proto.RegisterType((*ChannelPoint)(nil), "lnrpc.ChannelPoint")
+	proto.RegisterType((*LightningAddress)(nil), "lnrpc.LightningAddress")
 	proto.RegisterType((*SendManyRequest)(nil), "lnrpc.SendManyRequest")
 	proto.RegisterType((*SendManyResponse)(nil), "lnrpc.SendManyResponse")
+	proto.RegisterType((*SendCoinsRequest)(nil), "lnrpc.SendCoinsRequest")
+	proto.RegisterType((*SendCoinsResponse)(nil), "lnrpc.SendCoinsResponse")
 	proto.RegisterType((*NewAddressRequest)(nil), "lnrpc.NewAddressRequest")
 	proto.RegisterType((*NewAddressResponse)(nil), "lnrpc.NewAddressResponse")
 	proto.RegisterType((*ConnectPeerRequest)(nil), "lnrpc.ConnectPeerRequest")
 	proto.RegisterType((*ConnectPeerResponse)(nil), "lnrpc.ConnectPeerResponse")
+	proto.RegisterType((*HTLC)(nil), "lnrpc.HTLC")
+	proto.RegisterType((*ActiveChannel)(nil), "lnrpc.ActiveChannel")
+	proto.RegisterType((*Peer)(nil), "lnrpc.Peer")
+	proto.RegisterType((*ListPeersRequest)(nil), "lnrpc.ListPeersRequest")
+	proto.RegisterType((*ListPeersResponse)(nil), "lnrpc.ListPeersResponse")
+	proto.RegisterType((*GetInfoRequest)(nil), "lnrpc.GetInfoRequest")
+	proto.RegisterType((*GetInfoResponse)(nil), "lnrpc.GetInfoResponse")
+	proto.RegisterType((*ConfirmationUpdate)(nil), "lnrpc.ConfirmationUpdate")
+	proto.RegisterType((*ChannelOpenUpdate)(nil), "lnrpc.ChannelOpenUpdate")
+	proto.RegisterType((*ChannelCloseUpdate)(nil), "lnrpc.ChannelCloseUpdate")
+	proto.RegisterType((*CloseChannelRequest)(nil), "lnrpc.CloseChannelRequest")
+	proto.RegisterType((*CloseStatusUpdate)(nil), "lnrpc.CloseStatusUpdate")
+	proto.RegisterType((*OpenChannelRequest)(nil), "lnrpc.OpenChannelRequest")
+	proto.RegisterType((*OpenStatusUpdate)(nil), "lnrpc.OpenStatusUpdate")
+	proto.RegisterType((*PendingChannelRequest)(nil), "lnrpc.PendingChannelRequest")
+	proto.RegisterType((*PendingChannelResponse)(nil), "lnrpc.PendingChannelResponse")
+	proto.RegisterType((*PendingChannelResponse_PendingChannel)(nil), "lnrpc.PendingChannelResponse.PendingChannel")
+	proto.RegisterType((*WalletBalanceRequest)(nil), "lnrpc.WalletBalanceRequest")
+	proto.RegisterType((*WalletBalanceResponse)(nil), "lnrpc.WalletBalanceResponse")
+	proto.RegisterEnum("lnrpc.ChannelStatus", ChannelStatus_name, ChannelStatus_value)
 	proto.RegisterEnum("lnrpc.NewAddressRequest_AddressType", NewAddressRequest_AddressType_name, NewAddressRequest_AddressType_value)
 }
 
@@ -139,14 +766,22 @@ var _ grpc.ClientConn
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion2
+const _ = grpc.SupportPackageIsVersion3
 
 // Client API for Lightning service
 
 type LightningClient interface {
+	WalletBalance(ctx context.Context, in *WalletBalanceRequest, opts ...grpc.CallOption) (*WalletBalanceResponse, error)
 	SendMany(ctx context.Context, in *SendManyRequest, opts ...grpc.CallOption) (*SendManyResponse, error)
+	SendCoins(ctx context.Context, in *SendCoinsRequest, opts ...grpc.CallOption) (*SendCoinsResponse, error)
 	NewAddress(ctx context.Context, in *NewAddressRequest, opts ...grpc.CallOption) (*NewAddressResponse, error)
 	ConnectPeer(ctx context.Context, in *ConnectPeerRequest, opts ...grpc.CallOption) (*ConnectPeerResponse, error)
+	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
+	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
+	OpenChannel(ctx context.Context, in *OpenChannelRequest, opts ...grpc.CallOption) (Lightning_OpenChannelClient, error)
+	CloseChannel(ctx context.Context, in *CloseChannelRequest, opts ...grpc.CallOption) (Lightning_CloseChannelClient, error)
+	PendingChannels(ctx context.Context, in *PendingChannelRequest, opts ...grpc.CallOption) (*PendingChannelResponse, error)
+	SendPayment(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendPaymentClient, error)
 }
 
 type lightningClient struct {
@@ -157,9 +792,27 @@ func NewLightningClient(cc *grpc.ClientConn) LightningClient {
 	return &lightningClient{cc}
 }
 
+func (c *lightningClient) WalletBalance(ctx context.Context, in *WalletBalanceRequest, opts ...grpc.CallOption) (*WalletBalanceResponse, error) {
+	out := new(WalletBalanceResponse)
+	err := grpc.Invoke(ctx, "/lnrpc.Lightning/WalletBalance", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lightningClient) SendMany(ctx context.Context, in *SendManyRequest, opts ...grpc.CallOption) (*SendManyResponse, error) {
 	out := new(SendManyResponse)
 	err := grpc.Invoke(ctx, "/lnrpc.Lightning/SendMany", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lightningClient) SendCoins(ctx context.Context, in *SendCoinsRequest, opts ...grpc.CallOption) (*SendCoinsResponse, error) {
+	out := new(SendCoinsResponse)
+	err := grpc.Invoke(ctx, "/lnrpc.Lightning/SendCoins", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,16 +837,164 @@ func (c *lightningClient) ConnectPeer(ctx context.Context, in *ConnectPeerReques
 	return out, nil
 }
 
+func (c *lightningClient) ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error) {
+	out := new(ListPeersResponse)
+	err := grpc.Invoke(ctx, "/lnrpc.Lightning/ListPeers", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lightningClient) GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error) {
+	out := new(GetInfoResponse)
+	err := grpc.Invoke(ctx, "/lnrpc.Lightning/GetInfo", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lightningClient) OpenChannel(ctx context.Context, in *OpenChannelRequest, opts ...grpc.CallOption) (Lightning_OpenChannelClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_Lightning_serviceDesc.Streams[0], c.cc, "/lnrpc.Lightning/OpenChannel", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &lightningOpenChannelClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Lightning_OpenChannelClient interface {
+	Recv() (*ChannelOpenUpdate, error)
+	grpc.ClientStream
+}
+
+type lightningOpenChannelClient struct {
+	grpc.ClientStream
+}
+
+func (x *lightningOpenChannelClient) Recv() (*ChannelOpenUpdate, error) {
+	m := new(ChannelOpenUpdate)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *lightningClient) CloseChannel(ctx context.Context, in *CloseChannelRequest, opts ...grpc.CallOption) (Lightning_CloseChannelClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_Lightning_serviceDesc.Streams[1], c.cc, "/lnrpc.Lightning/CloseChannel", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &lightningCloseChannelClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Lightning_CloseChannelClient interface {
+	Recv() (*ChannelCloseUpdate, error)
+	grpc.ClientStream
+}
+
+type lightningCloseChannelClient struct {
+	grpc.ClientStream
+}
+
+func (x *lightningCloseChannelClient) Recv() (*ChannelCloseUpdate, error) {
+	m := new(ChannelCloseUpdate)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *lightningClient) PendingChannels(ctx context.Context, in *PendingChannelRequest, opts ...grpc.CallOption) (*PendingChannelResponse, error) {
+	out := new(PendingChannelResponse)
+	err := grpc.Invoke(ctx, "/lnrpc.Lightning/PendingChannels", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lightningClient) SendPayment(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendPaymentClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_Lightning_serviceDesc.Streams[2], c.cc, "/lnrpc.Lightning/SendPayment", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &lightningSendPaymentClient{stream}
+	return x, nil
+}
+
+type Lightning_SendPaymentClient interface {
+	Send(*SendRequest) error
+	Recv() (*SendResponse, error)
+	grpc.ClientStream
+}
+
+type lightningSendPaymentClient struct {
+	grpc.ClientStream
+}
+
+func (x *lightningSendPaymentClient) Send(m *SendRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *lightningSendPaymentClient) Recv() (*SendResponse, error) {
+	m := new(SendResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // Server API for Lightning service
 
 type LightningServer interface {
+	WalletBalance(context.Context, *WalletBalanceRequest) (*WalletBalanceResponse, error)
 	SendMany(context.Context, *SendManyRequest) (*SendManyResponse, error)
+	SendCoins(context.Context, *SendCoinsRequest) (*SendCoinsResponse, error)
 	NewAddress(context.Context, *NewAddressRequest) (*NewAddressResponse, error)
 	ConnectPeer(context.Context, *ConnectPeerRequest) (*ConnectPeerResponse, error)
+	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
+	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
+	OpenChannel(*OpenChannelRequest, Lightning_OpenChannelServer) error
+	CloseChannel(*CloseChannelRequest, Lightning_CloseChannelServer) error
+	PendingChannels(context.Context, *PendingChannelRequest) (*PendingChannelResponse, error)
+	SendPayment(Lightning_SendPaymentServer) error
 }
 
 func RegisterLightningServer(s *grpc.Server, srv LightningServer) {
 	s.RegisterService(&_Lightning_serviceDesc, srv)
+}
+
+func _Lightning_WalletBalance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WalletBalanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).WalletBalance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/WalletBalance",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).WalletBalance(ctx, req.(*WalletBalanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Lightning_SendMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -210,6 +1011,24 @@ func _Lightning_SendMany_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LightningServer).SendMany(ctx, req.(*SendManyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lightning_SendCoins_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendCoinsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).SendCoins(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/SendCoins",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).SendCoins(ctx, req.(*SendCoinsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -250,13 +1069,143 @@ func _Lightning_ConnectPeer_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_ListPeers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPeersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).ListPeers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/ListPeers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).ListPeers(ctx, req.(*ListPeersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lightning_GetInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).GetInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/GetInfo",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).GetInfo(ctx, req.(*GetInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lightning_OpenChannel_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(OpenChannelRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(LightningServer).OpenChannel(m, &lightningOpenChannelServer{stream})
+}
+
+type Lightning_OpenChannelServer interface {
+	Send(*ChannelOpenUpdate) error
+	grpc.ServerStream
+}
+
+type lightningOpenChannelServer struct {
+	grpc.ServerStream
+}
+
+func (x *lightningOpenChannelServer) Send(m *ChannelOpenUpdate) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Lightning_CloseChannel_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(CloseChannelRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(LightningServer).CloseChannel(m, &lightningCloseChannelServer{stream})
+}
+
+type Lightning_CloseChannelServer interface {
+	Send(*ChannelCloseUpdate) error
+	grpc.ServerStream
+}
+
+type lightningCloseChannelServer struct {
+	grpc.ServerStream
+}
+
+func (x *lightningCloseChannelServer) Send(m *ChannelCloseUpdate) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Lightning_PendingChannels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PendingChannelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).PendingChannels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/PendingChannels",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).PendingChannels(ctx, req.(*PendingChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lightning_SendPayment_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(LightningServer).SendPayment(&lightningSendPaymentServer{stream})
+}
+
+type Lightning_SendPaymentServer interface {
+	Send(*SendResponse) error
+	Recv() (*SendRequest, error)
+	grpc.ServerStream
+}
+
+type lightningSendPaymentServer struct {
+	grpc.ServerStream
+}
+
+func (x *lightningSendPaymentServer) Send(m *SendResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *lightningSendPaymentServer) Recv() (*SendRequest, error) {
+	m := new(SendRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 var _Lightning_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "lnrpc.Lightning",
 	HandlerType: (*LightningServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "WalletBalance",
+			Handler:    _Lightning_WalletBalance_Handler,
+		},
+		{
 			MethodName: "SendMany",
 			Handler:    _Lightning_SendMany_Handler,
+		},
+		{
+			MethodName: "SendCoins",
+			Handler:    _Lightning_SendCoins_Handler,
 		},
 		{
 			MethodName: "NewAddress",
@@ -266,33 +1215,131 @@ var _Lightning_serviceDesc = grpc.ServiceDesc{
 			MethodName: "ConnectPeer",
 			Handler:    _Lightning_ConnectPeer_Handler,
 		},
+		{
+			MethodName: "ListPeers",
+			Handler:    _Lightning_ListPeers_Handler,
+		},
+		{
+			MethodName: "GetInfo",
+			Handler:    _Lightning_GetInfo_Handler,
+		},
+		{
+			MethodName: "PendingChannels",
+			Handler:    _Lightning_PendingChannels_Handler,
+		},
 	},
-	Streams: []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "OpenChannel",
+			Handler:       _Lightning_OpenChannel_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "CloseChannel",
+			Handler:       _Lightning_CloseChannel_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SendPayment",
+			Handler:       _Lightning_SendPayment_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
+	Metadata: fileDescriptor0,
 }
 
+func init() { proto.RegisterFile("rpc.proto", fileDescriptor0) }
+
 var fileDescriptor0 = []byte{
-	// 365 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x74, 0x92, 0xcf, 0x4e, 0xea, 0x40,
-	0x14, 0xc6, 0x6f, 0xe1, 0x72, 0x2f, 0x9c, 0xa2, 0xc0, 0x21, 0x01, 0xec, 0x8a, 0xd4, 0x3f, 0x61,
-	0xd5, 0x45, 0xd9, 0x18, 0x4d, 0x4c, 0xaa, 0x34, 0x81, 0xa8, 0x48, 0x6c, 0x8d, 0x71, 0x45, 0x90,
-	0x4e, 0xb0, 0x11, 0xa7, 0xb5, 0x1d, 0xd4, 0xbe, 0x80, 0xcf, 0xe0, 0x6b, 0xf9, 0x46, 0x8e, 0x65,
-	0x1a, 0x8a, 0xc5, 0xe5, 0xf7, 0xcd, 0x6f, 0xbe, 0x7e, 0xe7, 0x74, 0xa0, 0x14, 0xf8, 0x53, 0xcd,
-	0x0f, 0x3c, 0xe6, 0x61, 0x61, 0x4e, 0xb9, 0x50, 0xdf, 0x25, 0xa8, 0x58, 0x84, 0x3a, 0x97, 0x13,
-	0x1a, 0x5d, 0x93, 0xe7, 0x05, 0x09, 0x19, 0x9e, 0x40, 0xd9, 0x70, 0x9c, 0xc0, 0xf6, 0x8c, 0x27,
-	0x6f, 0x41, 0x59, 0x4b, 0x6a, 0xe7, 0x3b, 0xb2, 0xde, 0xd1, 0xe2, 0x1b, 0xda, 0x0f, 0x5a, 0x4b,
-	0xa3, 0x26, 0x65, 0x41, 0xa4, 0x74, 0xa1, 0x96, 0x31, 0x51, 0x86, 0xfc, 0x23, 0x89, 0x78, 0x96,
-	0xd4, 0x29, 0xe1, 0x16, 0x14, 0x5e, 0x26, 0xf3, 0x05, 0x69, 0xe5, 0xb8, 0xcc, 0x1f, 0xe5, 0x0e,
-	0x25, 0xb5, 0x0d, 0xd5, 0x55, 0x72, 0xe8, 0x7b, 0x34, 0x24, 0x58, 0x86, 0xbf, 0xec, 0xcd, 0x75,
-	0x96, 0x97, 0xd4, 0x0f, 0x09, 0x6a, 0x43, 0xf2, 0xfa, 0x1d, 0x4d, 0xc2, 0x30, 0x29, 0xab, 0x73,
-	0x26, 0xf2, 0x49, 0xcc, 0x6c, 0xeb, 0x7b, 0xa2, 0x64, 0x86, 0xd3, 0x84, 0xb4, 0x39, 0xab, 0x5e,
-	0x81, 0x9c, 0x92, 0xd8, 0x84, 0xfa, 0xed, 0xc0, 0x1e, 0x9a, 0x96, 0x35, 0x1e, 0xdd, 0x9c, 0x9e,
-	0x9b, 0x77, 0xe3, 0xbe, 0x61, 0xf5, 0xab, 0x7f, 0xb0, 0x01, 0xc8, 0x5d, 0xdb, 0xec, 0xad, 0xf9,
-	0x12, 0x56, 0x40, 0x4e, 0x1b, 0x39, 0x75, 0x9f, 0x83, 0xa9, 0x2f, 0x8a, 0xfa, 0x15, 0xf8, 0x3f,
-	0x59, 0x5a, 0x62, 0x82, 0x03, 0xc0, 0x33, 0x8f, 0x52, 0x32, 0x65, 0x23, 0x42, 0x82, 0x64, 0x82,
-	0x2a, 0x14, 0x5d, 0xc7, 0x60, 0x7d, 0x2f, 0x64, 0x82, 0xdb, 0x85, 0xfa, 0x1a, 0xb7, 0x5a, 0xc7,
-	0x9c, 0x0e, 0x7a, 0x31, 0x54, 0xd6, 0x3f, 0x25, 0x28, 0x5d, 0xb8, 0xb3, 0x07, 0x46, 0x5d, 0x3a,
-	0xc3, 0x63, 0x28, 0x26, 0xeb, 0xc3, 0xc6, 0xe6, 0x3f, 0xa5, 0x34, 0x33, 0xbe, 0x08, 0x36, 0x00,
-	0x56, 0xf5, 0xb1, 0xf5, 0xdb, 0x0e, 0x95, 0x9d, 0x0d, 0x27, 0x22, 0xa2, 0x07, 0x72, 0xaa, 0x32,
-	0x26, 0x64, 0x76, 0x5c, 0x45, 0xd9, 0x74, 0xb4, 0x4c, 0xb9, 0xff, 0x17, 0xbf, 0xcd, 0xee, 0x57,
-	0x00, 0x00, 0x00, 0xff, 0xff, 0x25, 0x4b, 0x6e, 0x48, 0xa8, 0x02, 0x00, 0x00,
+	// 1412 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xa4, 0x57, 0x4d, 0x6f, 0xdb, 0x46,
+	0x13, 0x0e, 0xf5, 0x61, 0x49, 0x23, 0xcb, 0x96, 0xd6, 0x5f, 0x0a, 0x93, 0x00, 0x79, 0x89, 0x24,
+	0x30, 0x82, 0xbc, 0x4e, 0xea, 0xf4, 0x10, 0x24, 0x68, 0x0a, 0xc7, 0x71, 0xe3, 0x34, 0xae, 0xed,
+	0xd6, 0x0e, 0x82, 0x9e, 0x08, 0x8a, 0x5c, 0x47, 0x44, 0x28, 0x92, 0xd5, 0x2e, 0x93, 0xa8, 0x87,
+	0x02, 0xbd, 0xf4, 0xda, 0x6b, 0x7f, 0x45, 0xff, 0x44, 0x8f, 0x05, 0xfa, 0x63, 0xfa, 0x0b, 0x3a,
+	0xfb, 0x41, 0xf1, 0x4b, 0x0e, 0x50, 0xf4, 0x24, 0x70, 0x76, 0xf6, 0x99, 0x99, 0x67, 0x67, 0x9e,
+	0x5d, 0x41, 0x67, 0x1a, 0xbb, 0x3b, 0xf1, 0x34, 0xe2, 0x11, 0x69, 0x06, 0x21, 0x7e, 0x58, 0xdf,
+	0x42, 0xf7, 0x8c, 0x86, 0xde, 0x77, 0xf4, 0x87, 0x84, 0x32, 0x4e, 0x96, 0xa1, 0xe1, 0xe1, 0xef,
+	0xd0, 0xb8, 0x69, 0x6c, 0x2f, 0x93, 0x2e, 0xd4, 0x9d, 0x09, 0x1f, 0xd6, 0xf0, 0xa3, 0x4e, 0xd6,
+	0x61, 0x39, 0x76, 0x66, 0x13, 0x1a, 0x72, 0x7b, 0xec, 0xb0, 0xf1, 0xb0, 0x2e, 0x5d, 0x06, 0xd0,
+	0xb9, 0x70, 0x18, 0xb7, 0x19, 0x82, 0x0c, 0x1b, 0x68, 0x6a, 0x5b, 0x2b, 0xb0, 0xac, 0x20, 0x59,
+	0x1c, 0x85, 0x8c, 0x5a, 0x8f, 0x61, 0x79, 0x7f, 0xec, 0x84, 0x21, 0x0d, 0x4e, 0x23, 0x3f, 0xe4,
+	0x02, 0xe8, 0x22, 0x09, 0x3d, 0x3f, 0x7c, 0x6b, 0xf3, 0x8f, 0xbe, 0xa7, 0x63, 0xa1, 0x35, 0x4a,
+	0x78, 0x9c, 0x70, 0xdb, 0x0f, 0x3d, 0xfa, 0x51, 0x06, 0xed, 0x59, 0x9f, 0x43, 0xff, 0xc8, 0x7f,
+	0x3b, 0xe6, 0x21, 0x7a, 0xef, 0x79, 0xde, 0x94, 0x32, 0x46, 0x08, 0x40, 0x9c, 0x8c, 0x5e, 0xd1,
+	0xd9, 0xa1, 0x48, 0x43, 0xec, 0xee, 0x88, 0xbc, 0xc7, 0x11, 0x53, 0xa9, 0x76, 0xac, 0x5f, 0x0c,
+	0x58, 0x15, 0x29, 0x7c, 0xe3, 0x84, 0xb3, 0xb4, 0xb2, 0xa7, 0xb0, 0x2c, 0x00, 0xce, 0xa3, 0xbd,
+	0x49, 0x94, 0x84, 0xa2, 0xc2, 0xfa, 0x76, 0x77, 0x77, 0x7b, 0x47, 0xd2, 0xb0, 0x53, 0xf2, 0xde,
+	0xc9, 0xbb, 0x1e, 0x84, 0x7c, 0x3a, 0x33, 0x1f, 0xc2, 0xa0, 0x62, 0x14, 0x04, 0xbd, 0xa3, 0x33,
+	0x9d, 0x43, 0x0f, 0x9a, 0xef, 0x9d, 0x20, 0xa1, 0x8a, 0xaf, 0xc7, 0xb5, 0x47, 0x86, 0x75, 0x13,
+	0xfa, 0x19, 0xb2, 0xa2, 0x43, 0xa4, 0x3a, 0x2f, 0xbb, 0x63, 0x3d, 0x50, 0x1e, 0xfb, 0xc8, 0x0c,
+	0xcb, 0x1d, 0x82, 0x83, 0xa1, 0x34, 0xec, 0x0a, 0x2c, 0x39, 0x2a, 0x65, 0x89, 0x6b, 0xfd, 0x0f,
+	0x06, 0xb9, 0x1d, 0x0b, 0x41, 0x7f, 0x33, 0x60, 0x70, 0x4c, 0x3f, 0x68, 0xc2, 0x52, 0xd8, 0x5d,
+	0xf4, 0x99, 0xc5, 0x54, 0xfa, 0xac, 0xec, 0xde, 0xd2, 0x95, 0x57, 0xfc, 0x76, 0xf4, 0xe7, 0x39,
+	0xfa, 0x5a, 0x27, 0xd0, 0xcd, 0x7d, 0x92, 0x2d, 0x58, 0x7b, 0xf3, 0xf2, 0xfc, 0xf8, 0xe0, 0xec,
+	0xcc, 0x3e, 0x7d, 0xfd, 0xec, 0xd5, 0xc1, 0xf7, 0xf6, 0xe1, 0xde, 0xd9, 0x61, 0xff, 0x0a, 0xd9,
+	0x04, 0x82, 0xd6, 0xf3, 0x83, 0xe7, 0x05, 0xbb, 0x41, 0x56, 0xa1, 0x9b, 0x37, 0xd4, 0xac, 0xdb,
+	0xe8, 0x98, 0x8b, 0xa8, 0xd3, 0x5f, 0x85, 0x96, 0xa3, 0x4c, 0xba, 0x82, 0x27, 0x40, 0xf6, 0x23,
+	0x6c, 0x19, 0x97, 0x9f, 0x52, 0x3a, 0x4d, 0x2b, 0xb8, 0x9d, 0x23, 0xa6, 0xbb, 0xbb, 0xa5, 0x2b,
+	0x28, 0x37, 0x88, 0x75, 0x07, 0xd6, 0x0a, 0x9b, 0xb3, 0x20, 0x31, 0x7e, 0xdb, 0x9a, 0xa6, 0xa6,
+	0xf5, 0x1c, 0x1a, 0x87, 0xe7, 0x47, 0xfb, 0xd8, 0x4f, 0x35, 0x6d, 0xab, 0x97, 0xd9, 0x16, 0xfd,
+	0x2d, 0xba, 0xdd, 0x0e, 0x22, 0xf7, 0x9d, 0x6e, 0x79, 0x3c, 0x67, 0x1e, 0xd9, 0x09, 0xd3, 0xed,
+	0xfe, 0x97, 0x01, 0xbd, 0x3d, 0x97, 0xfb, 0xef, 0xa9, 0xee, 0x72, 0xb1, 0x67, 0x4a, 0x27, 0x11,
+	0xa7, 0x69, 0xa8, 0x0e, 0xd9, 0x80, 0x9e, 0xab, 0x56, 0xed, 0x58, 0x0c, 0x81, 0x6a, 0x54, 0xd2,
+	0x87, 0xb6, 0xeb, 0xc4, 0x8e, 0xeb, 0xf3, 0x99, 0x04, 0xaf, 0x0b, 0x47, 0x0c, 0xe5, 0x04, 0xf6,
+	0xc8, 0x09, 0x9c, 0xd0, 0xa5, 0x32, 0x48, 0x1d, 0xf9, 0x5d, 0xd1, 0x90, 0xa9, 0xbd, 0x29, 0xed,
+	0x57, 0x61, 0x90, 0x60, 0x6d, 0x9c, 0x07, 0xd4, 0xb3, 0x47, 0x54, 0x2d, 0x2d, 0xc9, 0x25, 0x0b,
+	0x7a, 0x31, 0x55, 0x63, 0x36, 0xe6, 0x81, 0xcb, 0x86, 0x2d, 0xd9, 0xf1, 0x5d, 0xcd, 0x9a, 0xac,
+	0x7c, 0x0d, 0xba, 0x61, 0x32, 0xb1, 0x93, 0xd8, 0x73, 0x38, 0x65, 0xc3, 0x36, 0x6e, 0x6c, 0x58,
+	0x7f, 0x18, 0xd0, 0x10, 0xc4, 0x89, 0x91, 0x0c, 0x52, 0x6e, 0xb3, 0x52, 0x72, 0x34, 0x8a, 0x22,
+	0x9a, 0xf9, 0xc3, 0xab, 0x4b, 0x0f, 0x24, 0x74, 0x34, 0x43, 0x3c, 0x21, 0x0a, 0x5c, 0x16, 0xd0,
+	0xc8, 0x6c, 0x53, 0xea, 0xbe, 0x97, 0xc9, 0x37, 0x44, 0xf5, 0xcc, 0xe1, 0xca, 0x4b, 0xe5, 0xac,
+	0x2d, 0xd2, 0xa7, 0x25, 0x2d, 0x08, 0xee, 0x87, 0x23, 0x3c, 0x10, 0x4f, 0x66, 0xd7, 0x26, 0x77,
+	0x90, 0x32, 0xc5, 0x24, 0x1b, 0x76, 0x64, 0x45, 0xeb, 0xba, 0xa2, 0xc2, 0x21, 0x58, 0x44, 0x28,
+	0x07, 0x93, 0x1d, 0x90, 0x76, 0xb6, 0x75, 0x1f, 0x06, 0x39, 0x9b, 0x6e, 0x0b, 0x13, 0x9a, 0xa2,
+	0x1e, 0xa6, 0x15, 0x21, 0xe5, 0x47, 0x38, 0x59, 0x7d, 0x58, 0x79, 0x41, 0xf9, 0xcb, 0xf0, 0x22,
+	0x4a, 0x21, 0x7e, 0x45, 0x69, 0x99, 0x9b, 0x34, 0xc2, 0x62, 0x9e, 0x86, 0xd0, 0xf7, 0x3d, 0x2c,
+	0x0d, 0xcf, 0xd6, 0x4e, 0xf9, 0x51, 0xa7, 0x7e, 0x1d, 0xd6, 0x05, 0xeb, 0xe9, 0xe9, 0xcc, 0xcb,
+	0x11, 0xec, 0xf5, 0xc8, 0x35, 0x58, 0x13, 0xab, 0x8e, 0xac, 0x26, 0x5b, 0x6c, 0xc8, 0x45, 0x6c,
+	0x2d, 0xb5, 0x55, 0x24, 0xdc, 0x94, 0x12, 0xf9, 0x5a, 0x8e, 0xca, 0x85, 0x3f, 0x9d, 0x38, 0xdc,
+	0x8f, 0xc2, 0xd7, 0xf2, 0x2c, 0x85, 0xe3, 0x48, 0xf4, 0xac, 0xcd, 0xc6, 0x4e, 0xa6, 0xb0, 0xca,
+	0x34, 0xa6, 0x22, 0x5b, 0x7d, 0x7a, 0xd8, 0x59, 0x02, 0xd1, 0x45, 0x08, 0x66, 0x07, 0xf4, 0x82,
+	0xab, 0x34, 0xac, 0x2f, 0x61, 0xa0, 0xa9, 0x3c, 0xc1, 0x44, 0x35, 0xea, 0xdd, 0x72, 0x1b, 0xab,
+	0x49, 0x5c, 0xd3, 0x9c, 0xe5, 0x65, 0x5e, 0x8e, 0xb0, 0xfa, 0xde, 0x0f, 0x22, 0x46, 0x35, 0x02,
+	0x26, 0xe1, 0xe2, 0x67, 0x49, 0xfc, 0xf1, 0x94, 0x59, 0xe2, 0xba, 0x29, 0x45, 0x6d, 0x2b, 0xc6,
+	0x11, 0x16, 0xbb, 0x34, 0x42, 0x2a, 0x00, 0xff, 0x22, 0xbe, 0xe8, 0x38, 0xee, 0x4f, 0xa8, 0x1d,
+	0xf8, 0x13, 0x3f, 0x9d, 0x66, 0x1c, 0x17, 0x27, 0x08, 0xa2, 0x0f, 0xf6, 0x45, 0x34, 0x75, 0x91,
+	0x5c, 0x11, 0x42, 0xd6, 0xdb, 0xb6, 0x7e, 0x46, 0xcd, 0x94, 0x21, 0xcf, 0xb8, 0xc3, 0x13, 0xa6,
+	0xd3, 0xfd, 0x0c, 0xd3, 0xcd, 0x91, 0xab, 0xe3, 0x5d, 0x4d, 0xe3, 0x55, 0x78, 0x3f, 0xbc, 0x42,
+	0xee, 0x03, 0x88, 0x1c, 0x35, 0x78, 0xad, 0xb8, 0xa1, 0x42, 0xc8, 0xe1, 0x95, 0x67, 0x6d, 0x58,
+	0x52, 0x03, 0x28, 0x26, 0x8f, 0x08, 0xb6, 0x4b, 0x55, 0xe3, 0x11, 0x71, 0x67, 0xfa, 0x96, 0x72,
+	0xbb, 0xa0, 0x5f, 0xe4, 0x1e, 0x74, 0xb5, 0x3d, 0x8c, 0xbc, 0x34, 0xd4, 0x65, 0xaa, 0x28, 0xba,
+	0x4e, 0x29, 0x4b, 0x7a, 0xf9, 0x6a, 0x9d, 0x53, 0xba, 0x73, 0x03, 0x36, 0xb4, 0xc0, 0x94, 0x96,
+	0x95, 0xfe, 0x6c, 0xc1, 0xaa, 0x1b, 0x4d, 0x26, 0x3e, 0x63, 0x58, 0xaa, 0xcd, 0xfc, 0x1f, 0x53,
+	0x01, 0xd2, 0x0d, 0x29, 0xdb, 0x47, 0x0e, 0x71, 0xcf, 0xfa, 0x09, 0xfa, 0xa2, 0x88, 0xff, 0xca,
+	0xe3, 0xff, 0xa1, 0x23, 0x79, 0x8c, 0x10, 0x4b, 0xd7, 0x36, 0x2c, 0xd2, 0x98, 0x35, 0x66, 0x81,
+	0xc5, 0x2f, 0x60, 0xe3, 0x54, 0x8d, 0x56, 0x89, 0xc7, 0x5b, 0xb0, 0xc4, 0x64, 0x52, 0xfa, 0x0a,
+	0x5c, 0x2f, 0xc2, 0xa9, 0x84, 0xad, 0xdf, 0x6b, 0xb0, 0x59, 0xde, 0xaf, 0x07, 0xfd, 0x2b, 0xe8,
+	0x57, 0x86, 0x56, 0xa9, 0xc6, 0xbd, 0xb9, 0x6a, 0x2c, 0xda, 0x58, 0x32, 0x9b, 0x7f, 0x1a, 0xb0,
+	0x52, 0x34, 0x55, 0x2e, 0xa7, 0x8a, 0xa8, 0xd4, 0x16, 0xdf, 0x23, 0xf5, 0xca, 0x3d, 0xd2, 0x58,
+	0x7c, 0x8f, 0x34, 0x2f, 0xb9, 0x47, 0x96, 0xd2, 0xc7, 0x5d, 0x61, 0x2c, 0x5b, 0x12, 0x36, 0x23,
+	0xac, 0xfd, 0x09, 0xc2, 0xee, 0xc1, 0xfa, 0x1b, 0x9c, 0x2a, 0xca, 0x9f, 0x29, 0xc8, 0x94, 0x6e,
+	0xc4, 0xfc, 0xe0, 0xf3, 0x10, 0x7b, 0xcf, 0x8e, 0xc2, 0x40, 0xbd, 0x92, 0xda, 0xd6, 0x36, 0x6c,
+	0x94, 0xbc, 0xb3, 0xeb, 0x39, 0xcd, 0x49, 0x78, 0x1a, 0x77, 0x77, 0xa1, 0x57, 0x08, 0x44, 0x5a,
+	0x50, 0xdf, 0x3b, 0x3a, 0xc2, 0xd7, 0x46, 0x17, 0x5a, 0x27, 0xa7, 0x07, 0xc7, 0x2f, 0x8f, 0x5f,
+	0xe0, 0x13, 0x03, 0x3f, 0xf6, 0x8f, 0x4e, 0xce, 0xc4, 0x47, 0x6d, 0xf7, 0xef, 0x26, 0x74, 0xe6,
+	0x9d, 0x4f, 0xbe, 0x86, 0x5e, 0x21, 0x16, 0xb9, 0xa6, 0x0b, 0x58, 0x94, 0xaf, 0x79, 0x7d, 0xf1,
+	0xa2, 0x4e, 0xef, 0x09, 0xb4, 0xd3, 0xa7, 0x1c, 0xd9, 0x5c, 0xfc, 0x6a, 0x34, 0xb7, 0x2a, 0x76,
+	0xbd, 0xf9, 0x29, 0x74, 0xe6, 0x6f, 0x36, 0x92, 0xf7, 0xca, 0xbf, 0xfb, 0xcc, 0x61, 0x75, 0x41,
+	0xef, 0xdf, 0x03, 0xc8, 0x5e, 0x4d, 0x64, 0x78, 0xd9, 0xd3, 0xcd, 0xbc, 0xba, 0x60, 0x45, 0x43,
+	0x3c, 0x87, 0x6e, 0xee, 0x51, 0x44, 0x72, 0xa3, 0x57, 0x7a, 0x65, 0x99, 0xe6, 0xa2, 0xa5, 0xac,
+	0x90, 0xf9, 0x0d, 0x4a, 0x32, 0xa9, 0x29, 0xde, 0xb3, 0xf3, 0x42, 0xaa, 0x97, 0xed, 0x23, 0x68,
+	0xe9, 0xdb, 0x93, 0x6c, 0x68, 0xa7, 0xe2, 0x05, 0x6b, 0x6e, 0x96, 0xcd, 0x59, 0xfe, 0x39, 0x69,
+	0x9c, 0xe7, 0x5f, 0x95, 0x4b, 0xf3, 0x52, 0x95, 0x78, 0x60, 0x90, 0x17, 0xf8, 0x5f, 0x24, 0x77,
+	0xaf, 0x90, 0x79, 0xad, 0xd5, 0xcb, 0xc6, 0xbc, 0x5c, 0xb4, 0x11, 0xe8, 0x18, 0x56, 0x8b, 0x13,
+	0x8c, 0x02, 0x7b, 0x89, 0x06, 0x28, 0xb4, 0x1b, 0x9f, 0x54, 0x08, 0xf2, 0x58, 0xfd, 0x0f, 0x3b,
+	0x55, 0xff, 0xb0, 0x08, 0xc9, 0xb5, 0x42, 0x8a, 0xb0, 0x56, 0xb0, 0xa9, 0x7d, 0xdb, 0xc6, 0x03,
+	0x63, 0xb4, 0x24, 0xff, 0xd1, 0x3d, 0xfc, 0x27, 0x00, 0x00, 0xff, 0xff, 0xd8, 0xf3, 0x62, 0x93,
+	0xde, 0x0d, 0x00, 0x00,
 }

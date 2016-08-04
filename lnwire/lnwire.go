@@ -169,7 +169,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
-	case [][20]byte:
+	case [][32]byte:
 		// First write out the number of elements in the slice.
 		sliceSize := len(e)
 		if err := writeElement(w, uint16(sliceSize)); err != nil {
@@ -178,11 +178,11 @@ func writeElement(w io.Writer, element interface{}) error {
 
 		// Then write each out sequentially.
 		for _, element := range e {
-			if err := writeElement(w, &element); err != nil {
+			if err := writeElement(w, element); err != nil {
 				return err
 			}
 		}
-	case [20]byte:
+	case [32]byte:
 		// TODO(roasbeef): should be factor out to caller logic...
 		if _, err := w.Write(e[:]); err != nil {
 			return err
@@ -199,6 +199,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		sliceLength := len(e)
 		if sliceLength > MaxSliceLength {
 			return fmt.Errorf("Slice length too long!")
+		}
+
+		if err := wire.WriteVarBytes(w, 0, e); err != nil {
+			return err
 		}
 	case PkScript:
 		// Make sure it's P2PKH or P2SH size or less.
@@ -249,6 +253,21 @@ func writeElement(w io.Writer, element interface{}) error {
 		// Then the exact index of the previous out point.
 		var idx [4]byte
 		binary.BigEndian.PutUint32(idx[:], e.PreviousOutPoint.Index)
+		if _, err := w.Write(idx[:]); err != nil {
+			return err
+		}
+	case *wire.OutPoint:
+		// TODO(roasbeef): consolidate with above
+		// First write out the previous txid.
+		var h [32]byte
+		copy(h[:], e.Hash[:])
+		if _, err := w.Write(h[:]); err != nil {
+			return err
+		}
+
+		// Then the exact index of this output.
+		var idx [4]byte
+		binary.BigEndian.PutUint32(idx[:], e.Index)
 		if _, err := w.Write(idx[:]); err != nil {
 			return err
 		}
@@ -389,7 +408,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = sig
-	case *[][20]byte:
+	case *[][32]byte:
 		// How many to read
 		var sliceSize uint16
 		err = readElement(r, &sliceSize)
@@ -397,10 +416,10 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		data := make([][20]byte, 0, sliceSize)
+		data := make([][32]byte, 0, sliceSize)
 		// Append the actual
 		for i := uint16(0); i < sliceSize; i++ {
-			var element [20]byte
+			var element [32]byte
 			err = readElement(r, &element)
 			if err != nil {
 				return err
@@ -408,7 +427,7 @@ func readElement(r io.Reader, element interface{}) error {
 			data = append(data, element)
 		}
 		*e = data
-	case *[20]byte:
+	case *[32]byte:
 		if _, err = io.ReadFull(r, e[:]); err != nil {
 			return err
 		}
@@ -478,6 +497,25 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		(*e).PreviousOutPoint.Index = binary.BigEndian.Uint32(idxBytes[:])
 		return nil
+	case **wire.OutPoint:
+		// TODO(roasbeef): consolidate with above
+		var h [32]byte
+		if _, err = io.ReadFull(r, h[:]); err != nil {
+			return err
+		}
+		hash, err := wire.NewShaHash(h[:])
+		if err != nil {
+			return err
+		}
+		// Index
+		var idxBytes [4]byte
+		_, err = io.ReadFull(r, idxBytes[:])
+		if err != nil {
+			return err
+		}
+		index := binary.BigEndian.Uint32(idxBytes[:])
+
+		*e = wire.NewOutPoint(hash, index)
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)
 	}

@@ -22,12 +22,6 @@ const MaxMessagePayload = 1024 * 1024 * 32 //  32MB
 
 // Commands used in lightning message headers which detail the type of message.
 const (
-	// Commands for opening a channel funded by both parties (dual funder).
-	CmdFundingRequest      = uint32(200)
-	CmdFundingResponse     = uint32(210)
-	CmdFundingSignAccept   = uint32(220)
-	CmdFundingSignComplete = uint32(230)
-
 	// Commands for opening a channel funded by one party (single funder).
 	CmdSingleFundingRequest      = uint32(100)
 	CmdSingleFundingResponse     = uint32(110)
@@ -72,14 +66,6 @@ func makeEmptyMessage(command uint32) (Message, error) {
 	var msg Message
 
 	switch command {
-	case CmdFundingRequest:
-		msg = &FundingRequest{}
-	case CmdFundingResponse:
-		msg = &FundingResponse{}
-	case CmdFundingSignAccept:
-		msg = &FundingSignAccept{}
-	case CmdFundingSignComplete:
-		msg = &FundingSignComplete{}
 	case CmdSingleFundingRequest:
 		msg = &SingleFundingRequest{}
 	case CmdSingleFundingResponse:
@@ -173,9 +159,7 @@ func discardInput(r io.Reader, n uint32) {
 
 // WriteMessage writes a lightning Message to w including the necessary header
 // information and returns the number of bytes written.
-func WriteMessage(w io.Writer, msg Message, pver uint32,
-	btcnet wire.BitcoinNet) (int, error) {
-
+func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet) (int, error) {
 	totalBytes := 0
 
 	cmd := msg.Command()

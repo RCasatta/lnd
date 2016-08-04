@@ -24,7 +24,7 @@ _testmain.go
 *.test
 *.prof
 
-lnd
+/lnd
 
 cmd/cmd
 **.key
@@ -44,3 +44,5 @@ test_wal/*
 *.hex
 *.db
 *.bin
+
+vendor

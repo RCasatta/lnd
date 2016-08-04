@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -16,9 +17,15 @@ import (
 // messages in order to batch add several HTLC's with a single signature
 // covering all implicitly accepted HTLC's.
 type CommitSignature struct {
-	// ChannelID uniquely identifies to which currently active channel this
+	// ChannelPoint uniquely identifies to which currently active channel this
 	// CommitSignature applies to.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
+
+	// LogIndex is the index into the reciever's HTLC log to which this
+	// commitment signature covers. In order to properly verify this
+	// signature, the receiver should include all the HTLC's within their
+	// log with an index less-than-or-equal to the listed log-index.
+	LogIndex uint64
 
 	// Fee represents the total miner's fee that was used when constructing
 	// the new commitment transaction.
@@ -33,16 +40,27 @@ type CommitSignature struct {
 	CommitSig *btcec.Signature
 }
 
+// NewCommitSignature creates a new empty CommitSignature message.
+func NewCommitSignature() *CommitSignature {
+	return &CommitSignature{}
+}
+
+// A compile time check to ensure CommitSignature implements the lnwire.Message
+// interface.
+var _ Message = (*CommitSignature)(nil)
+
 // Decode deserializes a serialized CommitSignature message stored in the
 // passed io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
+	// ChannelPoint(8)
+	// LogIndex(8)
 	// Fee(8)
 	// RequesterCommitSig(73max+2)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
+		&c.LogIndex,
 		&c.Fee,
 		&c.CommitSig,
 	)
@@ -53,23 +71,21 @@ func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// NewCommitSignature creates a new empty CommitSignature message.
-func NewCommitSignature() *CommitSignature {
-	return &CommitSignature{}
-}
-
-// A compile time check to ensure CommitSignature implements the lnwire.Message
-// interface.
-var _ Message = (*CommitSignature)(nil)
-
 // Encode serializes the target CommitSignature into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
-	// TODO(roasbeef): make similar modificaiton to all other encode/decode
-	// messags
-	return writeElements(w, c.ChannelID, c.Fee, c.CommitSig)
+	err := writeElements(w,
+		c.ChannelPoint,
+		c.LogIndex,
+		c.Fee,
+		c.CommitSig,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the
@@ -85,8 +101,8 @@ func (c *CommitSignature) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) MaxPayloadLength(uint32) uint32 {
-	// 8 + 8 + 73
-	return 89
+	// 36 + 8 + 8 + 73
+	return 125
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -114,7 +130,8 @@ func (c *CommitSignature) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin CommitSignature ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
+		fmt.Sprintf("LogIndex:\t\t%v\n", c.LogIndex) +
 		fmt.Sprintf("Fee:\t\t\t%s\n", c.Fee.String()) +
 		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +
 		fmt.Sprintf("--- End CommitSignature ---\n")

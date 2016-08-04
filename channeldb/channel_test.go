@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
-	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcutil"
+	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 )
 
 var (
@@ -25,13 +26,16 @@ var (
 		0xd, 0xe7, 0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
 		0x1e, 0xb, 0x4c, 0xf9, 0x9e, 0xc5, 0x8c, 0xe9,
 	}
-	id = [wire.HashSize]byte{
-		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
-		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
-		0x2d, 0xe7, 0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
-		0x1f, 0xb, 0x4c, 0xf9, 0x9e, 0xc5, 0x8c, 0xe9,
+	id = &wire.OutPoint{
+		Hash: [wire.HashSize]byte{
+			0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+			0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+			0x2d, 0xe7, 0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+			0x1f, 0xb, 0x4c, 0xf9, 0x9e, 0xc5, 0x8c, 0xe9,
+		},
+		Index: 9,
 	}
-	rev = [20]byte{
+	rev = [wire.HashSize]byte{
 		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
 		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
 		0x2d, 0xe7, 0x93, 0xe4,
@@ -68,6 +72,10 @@ var (
 		},
 		LockTime: 5,
 	}
+	testOutpoint = &wire.OutPoint{
+		Hash:  key,
+		Index: 0,
+	}
 )
 
 type MockEncryptorDecryptor struct {
@@ -87,9 +95,10 @@ func (m *MockEncryptorDecryptor) OverheadSize() uint32 {
 
 var _ EncryptorDecryptor = (*MockEncryptorDecryptor)(nil)
 
-func TestOpenChannelEncodeDecode(t *testing.T) {
+func TestOpenChannelPutGetDelete(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
+	// TODO(roasbeef): move initial set up to something within testing.Main
 	tempDirName, err := ioutil.TempDir("", "channeldb")
 	if err != nil {
 		t.Fatalf("unable to create temp dir: %v")
@@ -118,8 +127,8 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 
 	// Simulate 1000 channel updates via progression of the elkrem
 	// revocation trees.
-	sender := elkrem.NewElkremSender(32, key)
-	receiver := elkrem.NewElkremReceiver(32)
+	sender := elkrem.NewElkremSender(key)
+	receiver := &elkrem.ElkremReceiver{}
 	for i := 0; i < 1000; i++ {
 		preImage, err := sender.AtIndex(uint64(i))
 		if err != nil {
@@ -132,49 +141,54 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	}
 
 	state := OpenChannel{
-		TheirLNID:              id,
-		ChanID:                 id,
-		MinFeePerKb:            btcutil.Amount(5000),
-		OurCommitKey:           privKey,
-		TheirCommitKey:         pubKey,
-		Capacity:               btcutil.Amount(10000),
-		OurBalance:             btcutil.Amount(3000),
-		TheirBalance:           btcutil.Amount(9000),
-		TheirCommitTx:          testTx,
-		OurCommitTx:            testTx,
-		LocalElkrem:            &sender,
-		RemoteElkrem:           &receiver,
-		FundingTx:              testTx,
-		MultiSigKey:            privKey,
-		FundingRedeemScript:    script,
-		TheirCurrentRevocation: rev,
-		OurDeliveryScript:      script,
-		TheirDeliveryScript:    script,
-		LocalCsvDelay:          5,
-		RemoteCsvDelay:         9,
-		NumUpdates:             1,
-		TotalSatoshisSent:      8,
-		TotalSatoshisReceived:  2,
-		TotalNetFees:           9,
-		CreationTime:           time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
-		Db:                     cdb,
+		TheirLNID:                  key,
+		ChanID:                     id,
+		MinFeePerKb:                btcutil.Amount(5000),
+		OurCommitKey:               privKey,
+		TheirCommitKey:             pubKey,
+		Capacity:                   btcutil.Amount(10000),
+		OurBalance:                 btcutil.Amount(3000),
+		TheirBalance:               btcutil.Amount(9000),
+		OurCommitTx:                testTx,
+		OurCommitSig:               bytes.Repeat([]byte{1}, 71),
+		LocalElkrem:                sender,
+		RemoteElkrem:               receiver,
+		FundingOutpoint:            testOutpoint,
+		OurMultiSigKey:             privKey,
+		TheirMultiSigKey:           privKey.PubKey(),
+		FundingRedeemScript:        script,
+		TheirCurrentRevocation:     privKey.PubKey(),
+		TheirCurrentRevocationHash: key,
+		OurDeliveryScript:          script,
+		TheirDeliveryScript:        script,
+		LocalCsvDelay:              5,
+		RemoteCsvDelay:             9,
+		NumUpdates:                 1,
+		TotalSatoshisSent:          8,
+		TotalSatoshisReceived:      2,
+		TotalNetFees:               9,
+		CreationTime:               time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
+		Db:                         cdb,
 	}
 
 	if err := state.FullSync(); err != nil {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 
-	newState, err := cdb.FetchOpenChannel(id)
+	nodeID := wire.ShaHash(state.TheirLNID)
+	openChannels, err := cdb.FetchOpenChannels(&nodeID)
 	if err != nil {
 		t.Fatalf("unable to fetch open channel: %v", err)
 	}
+
+	newState := openChannels[0]
 
 	// The decoded channel state should be identical to what we stored
 	// above.
 	if !bytes.Equal(state.TheirLNID[:], newState.TheirLNID[:]) {
 		t.Fatalf("their id doesn't match")
 	}
-	if !bytes.Equal(state.ChanID[:], newState.ChanID[:]) {
+	if !reflect.DeepEqual(state.ChanID, newState.ChanID) {
 		t.Fatalf("chan id's don't match")
 	}
 	if state.MinFeePerKb != newState.MinFeePerKb {
@@ -202,19 +216,6 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	}
 
 	var b1, b2 bytes.Buffer
-	if err := state.TheirCommitTx.Serialize(&b1); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if err := newState.TheirCommitTx.Serialize(&b2); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
-		t.Fatalf("theirCommitTx doesn't match")
-	}
-
-	b1.Reset()
-	b2.Reset()
-
 	if err := state.OurCommitTx.Serialize(&b1); err != nil {
 		t.Fatalf("unable to serialize transaction")
 	}
@@ -224,23 +225,22 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
 		t.Fatalf("ourCommitTx doesn't match")
 	}
-
-	b1.Reset()
-	b2.Reset()
-
-	if err := state.FundingTx.Serialize(&b1); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if err := newState.FundingTx.Serialize(&b2); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
-		t.Fatalf("funding tx doesn't match")
+	if !bytes.Equal(newState.OurCommitSig, state.OurCommitSig) {
+		t.Fatalf("commit sigs don't match")
 	}
 
-	if !bytes.Equal(state.MultiSigKey.Serialize(),
-		newState.MultiSigKey.Serialize()) {
-		t.Fatalf("multisig key doesn't match")
+	// TODO(roasbeef): replace with a single equal?
+	if !reflect.DeepEqual(state.FundingOutpoint, newState.FundingOutpoint) {
+		t.Fatalf("funding outpoint doesn't match")
+	}
+
+	if !bytes.Equal(state.OurMultiSigKey.Serialize(),
+		newState.OurMultiSigKey.Serialize()) {
+		t.Fatalf("our multisig key doesn't match")
+	}
+	if !bytes.Equal(state.TheirMultiSigKey.SerializeCompressed(),
+		newState.TheirMultiSigKey.SerializeCompressed()) {
+		t.Fatalf("their multisig key doesn't match")
 	}
 	if !bytes.Equal(state.FundingRedeemScript, newState.FundingRedeemScript) {
 		t.Fatalf("redeem script doesn't match")
@@ -275,6 +275,48 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 
 	if state.CreationTime.Unix() != newState.CreationTime.Unix() {
 		t.Fatalf("creation time doesn't match")
+	}
+
+	// The local and remote elkrems should be identical.
+	if !bytes.Equal(state.LocalElkrem.ToBytes(), newState.LocalElkrem.ToBytes()) {
+		t.Fatalf("local elkrems don't match")
+	}
+	oldRemoteElkrem, err := state.RemoteElkrem.ToBytes()
+	if err != nil {
+		t.Fatalf("unable to serialize old remote elkrem: %v", err)
+	}
+	newRemoteElkrem, err := newState.RemoteElkrem.ToBytes()
+	if err != nil {
+		t.Fatalf("unable to serialize new remote elkrem: %v", err)
+	}
+	if !bytes.Equal(oldRemoteElkrem, newRemoteElkrem) {
+		t.Fatalf("remote elkrems don't match")
+	}
+	if !newState.TheirCurrentRevocation.IsEqual(state.TheirCurrentRevocation) {
+		t.Fatalf("revocation keys don't match")
+	}
+	if !bytes.Equal(newState.TheirCurrentRevocationHash[:], state.TheirCurrentRevocationHash[:]) {
+		t.Fatalf("revocation hashes don't match")
+	}
+
+	// Finally to wrap up the test, delete the state of the channel within
+	// the database. This involves "closing" the channel which removes all
+	// written state, and creates a small "summary" elsewhere within the
+	// database.
+	if err := state.CloseChannel(); err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// As the channel is now closed, attempting to fetch all open channels
+	// for our fake node ID should return an empty slice.
+	openChans, err := cdb.FetchOpenChannels(&nodeID)
+	if err != nil {
+		t.Fatalf("unable to fetch open channels: %v", err)
+	}
+
+	// TODO(roasbeef): need to assert much more
+	if len(openChans) != 0 {
+		t.Fatalf("all channels not deleted, found %v", len(openChans))
 	}
 }
 

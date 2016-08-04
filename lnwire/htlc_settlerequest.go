@@ -3,45 +3,58 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // HTLCSettleRequest is sent by Alice to Bob when she wishes to settle a
 // particular HTLC referenced by its HTLCKey within a specific active channel
-// referenced by ChannelID. The message allows multiple hash preimages to be
+// referenced by ChannelPoint. The message allows multiple hash preimages to be
 // presented in order to support N-of-M HTLC contracts. A subsequent
 // CommitSignature message will be sent by Alice to "lock-in" the removal of the
 // specified HTLC, possible containing a batch signature covering several settled
 // HTLC's.
 type HTLCSettleRequest struct {
-	// ChannelID references an active channel which holds the HTLC to be
+	// ChannelPoint references an active channel which holds the HTLC to be
 	// settled.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// HTLCKey denotes the exact HTLC stage within the receiving node's
 	// commitment transaction to be removed.
+	// TODO(roasbeef): rename to LogIndex
 	HTLCKey HTLCKey
 
 	// RedemptionProofs are the R-value preimages required to fully settle
 	// an HTLC. The number of preimages in the slice will depend on the
 	// specific ContractType of the referenced HTLC.
-	RedemptionProofs [][20]byte
+	RedemptionProofs [][32]byte
 }
+
+// NewHTLCSettleRequest returns a new empty HTLCSettleRequest.
+func NewHTLCSettleRequest(chanPoint *wire.OutPoint, key HTLCKey,
+	redemptionProofs [][32]byte) *HTLCSettleRequest {
+
+	return &HTLCSettleRequest{
+		ChannelPoint:     chanPoint,
+		HTLCKey:          key,
+		RedemptionProofs: redemptionProofs,
+	}
+}
+
+// A compile time check to ensure HTLCSettleRequest implements the lnwire.Message
+// interface.
+var _ Message = (*HTLCSettleRequest)(nil)
 
 // Decode deserializes a serialized HTLCSettleRequest message stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
+	// ChannelPoint(8)
 	// HTLCKey(8)
-	// Expiry(4)
-	// Amount(4)
-	// NextHop(20)
-	// ContractType(1)
-	// RedemptionHashes (numOfHashes * 20 + numOfHashes)
-	// Blob(2+blobsize)
+	// RedemptionProofs(N*32)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.HTLCKey,
 		&c.RedemptionProofs,
 	)
@@ -52,20 +65,13 @@ func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// NewHTLCSettleRequest returns a new empty HTLCSettleRequest.
-func NewHTLCSettleRequest() *HTLCSettleRequest {
-	return &HTLCSettleRequest{}
-}
-
-// A compile time check to ensure HTLCSettleRequest implements the lnwire.Message
-// interface.
-var _ Message = (*HTLCSettleRequest)(nil)
-
-// Serializes the item from the HTLCSettleRequest struct
-// Writes the data to w
+// Encode serializes the target HTLCSettleRequest into the passed io.Writer
+// observing the protocol version specified.
+//
+// This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.HTLCKey,
 		c.RedemptionProofs,
 	)
@@ -89,8 +95,8 @@ func (c *HTLCSettleRequest) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) MaxPayloadLength(uint32) uint32 {
-	// 8 + 8 + (21 * 15)
-	return 331
+	// 36 + 8 + (32 * 15)
+	return 524
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -113,7 +119,7 @@ func (c *HTLCSettleRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin HTLCSettleRequest ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
 		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("RedemptionHashes:") +
 		redemptionProofs +

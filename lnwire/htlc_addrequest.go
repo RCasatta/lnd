@@ -3,6 +3,8 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // HTLCAddRequest is the message sent by Alice to Bob when she wishes to add an
@@ -13,9 +15,9 @@ import (
 // A subsequent CommitSignature message will move the pending HTLC to the newly
 // created commitment transaction, marking them as "staged".
 type HTLCAddRequest struct {
-	// ChannelID is the particular active channel that this HTLCAddRequest
+	// ChannelPoint is the particular active channel that this HTLCAddRequest
 	// is binded to.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// Expiry is the number of blocks after which this HTLC should expire.
 	// It is the receiver's duty to ensure that the outgoing HTLC has a
@@ -43,11 +45,7 @@ type HTLCAddRequest struct {
 	// number of pre-images for each of the listed hashes. For regular HTLC's
 	// this slice only has one hash. However, for "multi-sig" HTLC's, the
 	// length of this slice should be N.
-	RedemptionHashes [][20]byte
-
-	// Data to parse&pass on to the next node
-	// Nested HTLCAddRequests with a uint32 in front for the size
-	Blob []byte
+	RedemptionHashes [][32]byte
 
 	// OnionBlob is the raw serialized mix header used to route an HTLC in
 	// a privacy-preserving manner. The mix header is defined currently to
@@ -62,34 +60,6 @@ type HTLCAddRequest struct {
 	OnionBlob []byte
 }
 
-// Decode deserializes a serialized HTLCAddRequest message stored in the passed
-// io.Reader observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
-	// Expiry(4)
-	// Amount(4)
-	// ContractType(1)
-	// RedemptionHashes (numOfHashes * 20 + numOfHashes)
-	// Blob(2+blobsize)
-	// OnionBlog
-	err := readElements(r,
-		&c.ChannelID,
-		&c.Expiry,
-		&c.Amount,
-		&c.ContractType,
-		&c.RedemptionHashes,
-		&c.Blob,
-		&c.OnionBlob,
-	)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // NewHTLCAddRequest returns a new empty HTLCAddRequest message.
 func NewHTLCAddRequest() *HTLCAddRequest {
 	return &HTLCAddRequest{}
@@ -99,18 +69,43 @@ func NewHTLCAddRequest() *HTLCAddRequest {
 // interface.
 var _ Message = (*HTLCAddRequest)(nil)
 
+// Decode deserializes a serialized HTLCAddRequest message stored in the passed
+// io.Reader observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
+func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
+	// ChannelPoint(8)
+	// Expiry(4)
+	// Amount(4)
+	// ContractType(1)
+	// RedemptionHashes (numOfHashes * 32 + numOfHashes)
+	// OnionBlog
+	err := readElements(r,
+		&c.ChannelPoint,
+		&c.Expiry,
+		&c.Amount,
+		&c.ContractType,
+		&c.RedemptionHashes,
+		&c.OnionBlob,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Encode serializes the target HTLCAddRequest into the passed io.Writer observing
 // the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCAddRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.Expiry,
 		c.Amount,
 		c.ContractType,
 		c.RedemptionHashes,
-		c.Blob,
 		c.OnionBlob,
 	)
 	if err != nil {
@@ -163,13 +158,12 @@ func (c *HTLCAddRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin HTLCAddRequest ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
 		fmt.Sprintf("Expiry:\t\t%d\n", c.Expiry) +
 		fmt.Sprintf("Amount\t\t%d\n", c.Amount) +
 		fmt.Sprintf("ContractType:\t%d (%b)\n", c.ContractType, c.ContractType) +
 		fmt.Sprintf("RedemptionHashes:") +
 		redemptionHashes +
-		fmt.Sprintf("Blob:\t\t\t\t%x\n", c.Blob) +
 		fmt.Sprintf("OnionBlob:\t\t\t\t%x\n", c.OnionBlob) +
 		fmt.Sprintf("--- End HTLCAddRequest ---\n")
 }

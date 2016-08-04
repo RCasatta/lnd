@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 
@@ -48,8 +47,12 @@ type SingleFundingRequest struct {
 
 	// CsvDelay is the number of blocks to use for the relative time lock
 	// in the pay-to-self output of both commitment transactions.
-	// TODO(roasbeef): bool for seconds or blocks?
 	CsvDelay uint32
+
+	// CommitmentKey is key the initiator of the funding workflow wishes to
+	// use within their versino of the commitment transaction for any
+	// delayed (CSV) or immediate outputs to them.
+	CommitmentKey *btcec.PublicKey
 
 	// ChannelDerivationPoint is an secp256k1 point which will be used to
 	// derive the public key the initiator will use for the half of the
@@ -59,12 +62,6 @@ type SingleFundingRequest struct {
 	// an odd y-coordinate.
 	ChannelDerivationPoint *btcec.PublicKey
 
-	// RevocationHash is the initial revocation hash to be used for the
-	// initiator's commitment transaction to derive their revocation public
-	// key as: P + G*revocationHash, where P is the initiator's channel
-	// public key.
-	RevocationHash [20]byte
-
 	// DeliveryPkScript defines the public key script that the initiator
 	// would like to use to receive their balance in the case of a
 	// cooperative close. Only the following script templates are
@@ -72,6 +69,24 @@ type SingleFundingRequest struct {
 	DeliveryPkScript PkScript
 
 	// TODO(roasbeef): confirmation depth
+}
+
+// NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
+func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
+	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
+	cdp *btcec.PublicKey, deliveryScript PkScript) *SingleFundingRequest {
+
+	return &SingleFundingRequest{
+		ChannelID:              chanID,
+		ChannelType:            chanType,
+		CoinType:               coinType,
+		FeePerKb:               fee,
+		FundingAmount:          amt,
+		CsvDelay:               delay,
+		CommitmentKey:          ck,
+		ChannelDerivationPoint: cdp,
+		DeliveryPkScript:       deliveryScript,
+	}
 }
 
 // Decode deserializes the serialized SingleFundingRequest stored in the passed
@@ -84,10 +99,10 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 	// ChannelType (1)
 	// CoinType	(8)
 	// FeePerKb (8)
-	// FundingAmount (8)
-	// CsvDelay (4)
-	// Channel Derivation Point (32)
-	// Revocation Hash (20)
+	// PaymentAmount (8)
+	// Delay (4)
+	// Pubkey (33)
+	// Pubkey (33)
 	// DeliveryPkScript (final delivery)
 	err := readElements(r,
 		&c.ChannelID,
@@ -96,19 +111,14 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.FeePerKb,
 		&c.FundingAmount,
 		&c.CsvDelay,
+		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
-		&c.RevocationHash,
 		&c.DeliveryPkScript)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
-func NewSingleFundingRequest() *SingleFundingRequest {
-	return &SingleFundingRequest{}
 }
 
 // Encode serializes the target SingleFundingRequest into the passed io.Writer
@@ -122,9 +132,9 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 	// CoinType	(8)
 	// FeePerKb (8)
 	// PaymentAmount (8)
-	// LockTime (4)
-	// Revocation Hash (20)
-	// Pubkey (32)
+	// Delay (4)
+	// Pubkey (33)
+	// Pubkey (33)
 	// DeliveryPkScript (final delivery)
 	err := writeElements(w,
 		c.ChannelID,
@@ -133,8 +143,8 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.FeePerKb,
 		c.FundingAmount,
 		c.CsvDelay,
+		c.CommitmentKey,
 		c.ChannelDerivationPoint,
-		c.RevocationHash,
 		c.DeliveryPkScript)
 	if err != nil {
 		return err
@@ -155,11 +165,11 @@ func (c *SingleFundingRequest) Command() uint32 {
 // SingleFundingRequest. This is calculated by summing the max length of all
 // the fields within a SingleFundingRequest. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 32 + 20 + 25 = 114.
+// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 25 = 158.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
-	return 114
+	return 158
 }
 
 // Validate examines each populated field within the SingleFundingRequest for
@@ -187,16 +197,10 @@ func (c *SingleFundingRequest) Validate() error {
 	if c.ChannelDerivationPoint == nil {
 		return fmt.Errorf("The channel derivation point must be non-nil")
 	}
-	if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
-		return fmt.Errorf("The channel derivation point must have an odd " +
-			"y-coordinate")
-	}
-
-	// The revocation hash MUST be non-zero.
-	var zeroHash [20]byte
-	if bytes.Equal(c.RevocationHash[:], zeroHash[:]) {
-		return fmt.Errorf("Initial revocation hash must be non-zero")
-	}
+	//if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
+	//return fmt.Errorf("The channel derivation point must have an odd " +
+	//"y-coordinate")
+	//}
 
 	// The delivery pkScript must be amongst the supported script
 	// templates.
@@ -219,6 +223,8 @@ func (c *SingleFundingRequest) String() string {
 		serializedPubkey = c.ChannelDerivationPoint.SerializeCompressed()
 	}
 
+	// TODO(roasbeef): remove string methods?
+
 	return fmt.Sprintf("\n--- Begin SingleFundingRequest ---\n") +
 		fmt.Sprintf("ChannelID:\t\t\t%d\n", c.ChannelID) +
 		fmt.Sprintf("ChannelType:\t\t\t%x\n", c.ChannelType) +
@@ -227,7 +233,6 @@ func (c *SingleFundingRequest) String() string {
 		fmt.Sprintf("FundingAmount:\t\t\t%s\n", c.FundingAmount.String()) +
 		fmt.Sprintf("CsvDelay\t\t\t%d\n", c.CsvDelay) +
 		fmt.Sprintf("ChannelDerivationPoint\t\t\t\t%x\n", serializedPubkey) +
-		fmt.Sprintf("RevocationHash\t\t\t%x\n", c.RevocationHash) +
 		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
 		fmt.Sprintf("--- End SingleFundingRequest ---\n")
 }

@@ -12,7 +12,6 @@ import (
 	"strconv"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/grpclog"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -24,16 +23,15 @@ var (
 	shutdownChannel = make(chan struct{})
 )
 
-func main() {
-	// Use all processor cores.
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
+// lndMain is the true entry point for lnd. This function is required since
+// defers created in the top-level scope of a main method aren't executed if
+// os.Exit() is called.
+func lndMain() error {
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
 	if err != nil {
-		fmt.Printf("unable to load config: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	cfg = loadedConfig
 	defer backendLog.Flush()
@@ -42,37 +40,38 @@ func main() {
 	ltndLog.Infof("Version %s", version())
 
 	if loadedConfig.SPVMode == true {
-		shell(loadedConfig.SPVHostAdr, activeNetParams)
-		return
+		shell(loadedConfig.SPVHostAdr, activeNetParams.Params)
+		return err
 	}
 
-	go func() {
-		listenAddr := net.JoinHostPort("", "5009")
-		profileRedirect := http.RedirectHandler("/debug/pprof",
-			http.StatusSeeOther)
-		http.Handle("/", profileRedirect)
-		fmt.Println(http.ListenAndServe(listenAddr, nil))
-	}()
+	// Enable http profiling server if requested.
+	if cfg.Profile != "" {
+		go func() {
+			listenAddr := net.JoinHostPort("", cfg.Profile)
+			profileRedirect := http.RedirectHandler("/debug/pprof",
+				http.StatusSeeOther)
+			http.Handle("/", profileRedirect)
+			fmt.Println(http.ListenAndServe(listenAddr, nil))
+		}()
+	}
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related meta-data.
-	chanDB, err := channeldb.Open(loadedConfig.DataDir, activeNetParams)
+	chanDB, err := channeldb.Open(loadedConfig.DataDir, activeNetParams.Params)
 	if err != nil {
 		fmt.Println("unable to open channeldb: ", err)
-		os.Exit(1)
+		return err
 	}
 	defer chanDB.Close()
 
-	// Read btcd's for lnwallet's convenience.
+	// Read btcd's rpc cert for lnwallet's convenience.
 	f, err := os.Open(loadedConfig.RPCCert)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	cert, err := ioutil.ReadAll(f)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	defer f.Close()
 
@@ -81,20 +80,20 @@ func main() {
 	config := &lnwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
-		RpcHost:     loadedConfig.RPCHost,
+		RpcHost:     fmt.Sprintf("%v:%v", loadedConfig.RPCHost, activeNetParams.rpcPort),
 		RpcUser:     loadedConfig.RPCUser,
 		RpcPass:     loadedConfig.RPCPass,
 		CACert:      cert,
-		NetParams:   activeNetParams,
+		NetParams:   activeNetParams.Params,
 	}
 	wallet, err := lnwallet.NewLightningWallet(config, chanDB)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	if err := wallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	ltndLog.Info("LightningWallet opened")
 
@@ -109,7 +108,7 @@ func main() {
 	server, err := newServer(defaultListenAddrs, wallet, chanDB)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	server.Start()
 
@@ -127,9 +126,8 @@ func main() {
 	// Finally, start the grpc server listening for HTTP/2 connections.
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", loadedConfig.RPCPort))
 	if err != nil {
-		grpclog.Fatalf("failed to listen: %v", err)
 		fmt.Printf("failed to listen: %v", err)
-		os.Exit(1)
+		return err
 	}
 	go func() {
 		rpcsLog.Infof("RPC server listening on %s", lis.Addr())
@@ -140,4 +138,18 @@ func main() {
 	// the interrupt handler.
 	<-shutdownChannel
 	ltndLog.Info("Shutdown complete")
+	return nil
+}
+
+func main() {
+	// Use all processor cores.
+	// TODO(roasbeef): remove this if required version # is > 1.6?
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// Call the "real" main in a nested manner so the defers will properly
+	// be executed in the case of a graceful shutdown.
+	if err := lndMain(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
